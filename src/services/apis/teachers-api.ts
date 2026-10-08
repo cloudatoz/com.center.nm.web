@@ -2,7 +2,7 @@ import { z } from 'zod'
 import { ApiContractError, apiClient, unwrapPayload } from './api-client'
 
 const teacherSchema = z.object({
-  _id: z.string(),
+  _id: z.coerce.string(),
   account: z.string(),
   email: z.string(),
   name: z.string(),

@@ -2,7 +2,7 @@ import { z } from 'zod'
 import { ApiContractError, apiClient, unwrapPayload } from './api-client'
 
 const childSchema = z.object({
-  _id: z.string(),
+  _id: z.coerce.string(),
   name: z.string(),
   gender: z.string().optional().default(''),
   birthDate: z.string().optional().nullable(),

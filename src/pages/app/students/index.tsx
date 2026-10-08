@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { AlertCircle, Eye, Loader2, Pencil, RefreshCw, Search, Users } from 'lucide-react'
+import { AlertCircle, CalendarCheck, CheckCircle2, Eye, Loader2, Pencil, RefreshCw, Search, Users } from 'lucide-react'
 import { type FormEvent, useMemo, useState } from 'react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
@@ -8,6 +8,8 @@ import { Modal } from '@/components/ui/modal'
 import { PageHeader } from '@/components/ui/page-header'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { type Child, getChildren, updateChild } from '@/services/apis/children-api'
+import { type AttendanceType, getMonthlyAttendances } from '@/services/apis/attendance-api'
+import { AttendanceModal } from './attendance-modal'
 
 const TYPE_LABELS: Record<string, string> = {
   BAN_TRU: 'Bán trú', CA_NHAN: 'Cá nhân', TAI_NHA: 'Tại nhà', TIEU_HOC: 'Tiểu học', TRE_MAM_NON: 'Trẻ mầm non',
@@ -38,6 +40,12 @@ function formatTypes(value: string | string[]) {
   return types.map((type) => TYPE_LABELS[type] || type).join(', ') || '—'
 }
 
+function supportsAttendanceType(child: Child, attendanceType: AttendanceType) {
+  const types = Array.isArray(child.type) ? child.type : [child.type]
+  if (attendanceType === 'BAN_TRU') return types.includes('BAN_TRU')
+  return types.length === 0 || types.some((type) => type !== 'BAN_TRU')
+}
+
 function InfoItem({ label, value }: { label: string; value: React.ReactNode }) {
   return (
     <div className="rounded-xl bg-surface-muted/60 p-3">
@@ -52,13 +60,25 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 }
 
 const inputClass = 'h-10 rounded-xl border border-border bg-app-background px-3 font-normal outline-none focus:border-primary'
+const CURRENT_MONTH_SHORT = `T${new Date().getMonth() + 1}`
+const CURRENT_MONTH = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`
 
 export default function StudentsPage() {
   const queryClient = useQueryClient()
   const [search, setSearch] = useState('')
   const [detailChild, setDetailChild] = useState<Child | null>(null)
   const [editingChild, setEditingChild] = useState<Child | null>(null)
+  const [attendanceChild, setAttendanceChild] = useState<Child | null>(null)
+  const [attendanceType, setAttendanceType] = useState<AttendanceType>('THEO_BUOI')
   const childrenQuery = useQuery({ queryKey: ['children'], queryFn: getChildren })
+  const attendanceStatusQuery = useQuery({
+    queryKey: ['attendance-status', CURRENT_MONTH],
+    queryFn: () => getMonthlyAttendances(CURRENT_MONTH),
+  })
+  const completedAttendanceIds = useMemo(
+    () => new Set((attendanceStatusQuery.data || []).filter((item) => item.isCompleted).map((item) => item._id)),
+    [attendanceStatusQuery.data],
+  )
   const updateMutation = useMutation({
     mutationFn: ({ id, data }: { id: string; data: Partial<Child> }) => updateChild(id, data),
     onSuccess: async () => {
@@ -76,6 +96,9 @@ export default function StudentsPage() {
       [child.name, child.phone, child.email].join(' ').toLocaleLowerCase('vi').includes(keyword),
     )
   }, [childrenQuery.data, search])
+
+  const isAttendanceCompleted = (child: Child, type: AttendanceType) =>
+    completedAttendanceIds.has(`${CURRENT_MONTH}_${child._id}_${type}`)
 
   const handleEdit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -120,12 +143,13 @@ export default function StudentsPage() {
                 <TableCell className="whitespace-nowrap font-medium">{formatMoney(child.tuitionFee)}</TableCell>
                 <TableCell className="whitespace-nowrap">{formatMoney(child.mealFee)}</TableCell>
                 <TableCell className="min-w-36 text-xs text-muted"><span className="block">CSVC: {formatMoney(child.csvcFee)}</span><span className="mt-1 block">Vẽ: {formatMoney(child.drawingFee)}</span><span className="mt-1 block">Ngoại ngữ: {formatMoney(child.languageFee)}</span><span className="mt-1 block">Vận động: {formatMoney(child.movementFee)}</span></TableCell>
-                <TableCell><div className="flex min-w-44 justify-end gap-2"><Button type="button" variant="secondary" size="sm" onClick={() => setDetailChild(child)}><Eye size={14} />Thông tin</Button><Button type="button" size="sm" onClick={() => setEditingChild(child)}><Pencil size={14} />Chỉnh sửa</Button></div></TableCell>
+                <TableCell><div className="flex min-w-max justify-end gap-2">{supportsAttendanceType(child, 'THEO_BUOI') && <Button type="button" variant="secondary" size="sm" className={isAttendanceCompleted(child, 'THEO_BUOI') ? 'border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 dark:border-emerald-500/40 dark:bg-emerald-500/15 dark:text-emerald-300' : undefined} onClick={() => { setAttendanceType('THEO_BUOI'); setAttendanceChild(child) }}>{isAttendanceCompleted(child, 'THEO_BUOI') ? <CheckCircle2 size={14} /> : <CalendarCheck size={14} />}{isAttendanceCompleted(child, 'THEO_BUOI') ? 'Đã điểm danh theo buổi' : 'Điểm danh theo buổi'} {CURRENT_MONTH_SHORT}</Button>}{supportsAttendanceType(child, 'BAN_TRU') && <Button type="button" variant="secondary" size="sm" className={isAttendanceCompleted(child, 'BAN_TRU') ? 'border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 dark:border-emerald-500/40 dark:bg-emerald-500/15 dark:text-emerald-300' : undefined} onClick={() => { setAttendanceType('BAN_TRU'); setAttendanceChild(child) }}>{isAttendanceCompleted(child, 'BAN_TRU') ? <CheckCircle2 size={14} /> : <CalendarCheck size={14} />}{isAttendanceCompleted(child, 'BAN_TRU') ? 'Đã điểm danh bán trú' : 'Điểm danh bán trú'} {CURRENT_MONTH_SHORT}</Button>}<Button type="button" variant="secondary" size="sm" onClick={() => setDetailChild(child)}><Eye size={14} />Thông tin</Button><Button type="button" size="sm" onClick={() => setEditingChild(child)}><Pencil size={14} />Chỉnh sửa</Button></div></TableCell>
               </TableRow>
             ))}</TableBody>
           </Table>
         )}
       </Card>
+      <AttendanceModal child={attendanceChild} initialType={attendanceType} onClose={() => setAttendanceChild(null)} />
 
       <Modal open={Boolean(detailChild)} onClose={() => setDetailChild(null)} title={detailChild?.name || 'Thông tin trẻ'} description="Thông tin cá nhân và các khoản phí" className="max-h-[90vh] max-w-3xl overflow-y-auto">
         {detailChild && <div className="grid gap-5"><dl className="m-0 grid gap-3 sm:grid-cols-2"><InfoItem label="Ngày sinh" value={formatDate(detailChild.birthDate)} /><InfoItem label="Giới tính" value={detailChild.gender === 'male' ? 'Nam' : 'Nữ'} /><InfoItem label="Loại học" value={formatTypes(detailChild.type)} /><InfoItem label="Liên hệ" value={detailChild.phone || detailChild.email} /><InfoItem label="Tên bố" value={detailChild.fatherName} /><InfoItem label="Tên mẹ" value={detailChild.motherName} /><InfoItem label="Địa chỉ" value={detailChild.address} /><InfoItem label="Xuất hóa đơn" value={detailChild.isInvoice ? 'Có' : 'Không'} /></dl><div><h4 className="mb-3 mt-0 text-sm font-bold">Các khoản phí</h4><dl className="m-0 grid gap-3 sm:grid-cols-2">{FEE_FIELDS.map(([field, label]) => <InfoItem key={field} label={label} value={formatMoney(detailChild[field])} />)}<InfoItem label="Mức phí theo giờ" value={formatMoney(detailChild.salaryOneHourForCenter)} /></dl></div></div>}
