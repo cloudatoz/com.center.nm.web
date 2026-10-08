@@ -1,0 +1,40 @@
+{
+  "name": "com.vg.admin.cms.web",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --mode dev",
+    "build": "tsc -b && vite build --mode prod",
+    "build:dev": "tsc -b && vite build --mode dev",
+    "build:prod": "tsc -b && vite build --mode prod",
+    "preview": "vite preview --port 3300",
+    "test": "bun test tests",
+    "typecheck": "tsc --noEmit --pretty false",
+    "check": "biome check src tests index.html vite.config.ts tsconfig.json"
+  },
+  "dependencies": {
+    "@tanstack/react-query": "5.101.0",
+    "axios": "1.18.0",
+    "clsx": "2.1.1",
+    "lucide-react": "1.21.0",
+    "react": "19.2.7",
+    "react-dom": "19.2.7",
+    "react-router-dom": "7.18.0",
+    "sonner": "2.0.7",
+    "tailwind-merge": "3.6.0",
+    "zod": "4.4.3",
+    "zustand": "5.0.14"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "4.3.1",
+    "@types/bun": "1.3.10",
+    "@types/node": "26.0.0",
+    "@types/react": "19.2.17",
+    "@types/react-dom": "19.2.3",
+    "@vitejs/plugin-react": "6.0.2",
+    "tailwindcss": "4.3.1",
+    "typescript": "6.0.3",
+    "vite": "8.0.16"
+  }
+}

@@ -1,0 +1,107 @@
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { AlertCircle, Eye, Loader2, Pencil, RefreshCw, Search, Users } from 'lucide-react'
+import { type FormEvent, useMemo, useState } from 'react'
+import { toast } from 'sonner'
+import { Button } from '@/components/ui/button'
+import { Card, CardHeader } from '@/components/ui/card'
+import { Modal } from '@/components/ui/modal'
+import { PageHeader } from '@/components/ui/page-header'
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { getTeachers, type Teacher, updateTeacher } from '@/services/apis/teachers-api'
+
+const inputClass = 'h-10 rounded-xl border border-border bg-app-background px-3 font-normal outline-none focus:border-primary'
+const formatMoney = (value: number) => `${Number(value || 0).toLocaleString('vi-VN')} đ`
+
+function formatDate(value?: string) {
+  if (!value) return '—'
+  const date = new Date(value)
+  return Number.isNaN(date.getTime()) ? '—' : date.toLocaleDateString('vi-VN')
+}
+
+function Field({ label, children, wide }: { label: string; children: React.ReactNode; wide?: boolean }) {
+  return <label className={`grid gap-1.5 text-sm font-semibold ${wide ? 'sm:col-span-2' : ''}`}>{label}{children}</label>
+}
+
+function InfoItem({ label, value, wide }: { label: string; value?: React.ReactNode; wide?: boolean }) {
+  return <div className={`rounded-xl bg-surface-muted/60 p-3 ${wide ? 'sm:col-span-2' : ''}`}><dt className="text-[11px] font-semibold uppercase tracking-wide text-muted">{label}</dt><dd className="m-0 mt-1 text-sm font-medium text-text-main">{value || '—'}</dd></div>
+}
+
+export default function TeachersPage() {
+  const queryClient = useQueryClient()
+  const [search, setSearch] = useState('')
+  const [detailTeacher, setDetailTeacher] = useState<Teacher | null>(null)
+  const [editingTeacher, setEditingTeacher] = useState<Teacher | null>(null)
+  const teachersQuery = useQuery({ queryKey: ['teachers'], queryFn: getTeachers })
+  const updateMutation = useMutation({
+    mutationFn: ({ id, data }: { id: string; data: Partial<Teacher> }) => updateTeacher(id, data),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['teachers'] })
+      setEditingTeacher(null)
+      toast.success('Cập nhật giáo viên thành công')
+    },
+    onError: (error) => toast.error(error instanceof Error ? error.message : 'Không thể cập nhật'),
+  })
+
+  const filteredTeachers = useMemo(() => {
+    const keyword = search.trim().toLocaleLowerCase('vi')
+    if (!keyword) return teachersQuery.data || []
+    return (teachersQuery.data || []).filter((teacher) =>
+      [teacher.name, teacher.account, teacher.email, teacher.phone]
+        .join(' ').toLocaleLowerCase('vi').includes(keyword),
+    )
+  }, [search, teachersQuery.data])
+
+  const handleEdit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    if (!editingTeacher) return
+    const form = new FormData(event.currentTarget)
+    updateMutation.mutate({
+      id: editingTeacher._id,
+      data: {
+        name: String(form.get('name') || '').trim(),
+        account: String(form.get('account') || '').trim(),
+        email: String(form.get('email') || '').trim(),
+        phone: String(form.get('phone') || '').trim(),
+        address: String(form.get('address') || '').trim(),
+        description: String(form.get('description') || '').trim(),
+        otherSalary: Number(form.get('otherSalary')) || 0,
+        accountBank: String(form.get('accountBank') || '').trim(),
+        nameBank: String(form.get('nameBank') || '').trim(),
+      },
+    })
+  }
+
+  return (
+    <div className="grid gap-6">
+      <PageHeader eyebrow="Giáo Viên" title="Danh sách Giáo Viên" description="Theo dõi và quản lý hồ sơ, thông tin lương của giáo viên." />
+      <Card>
+        <CardHeader title={`Danh sách Giáo Viên (${filteredTeachers.length})`} description="Tìm kiếm theo tên, tài khoản, email hoặc số điện thoại." action={<Button type="button" variant="secondary" size="compact" onClick={() => teachersQuery.refetch()} disabled={teachersQuery.isFetching}><RefreshCw size={15} className={teachersQuery.isFetching ? 'spin' : ''} />Làm mới</Button>} />
+        <div className="border-b border-border p-4 sm:px-6"><label className="relative block max-w-md"><span className="sr-only">Tìm kiếm giáo viên</span><Search size={17} className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-muted" /><input type="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Tìm kiếm giáo viên..." className="h-10 w-full rounded-xl border border-border bg-app-background pl-10 pr-4 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/15" /></label></div>
+
+        {teachersQuery.isLoading && <div className="flex min-h-64 items-center justify-center gap-2 text-sm text-muted"><Loader2 size={20} className="spin text-primary" />Đang tải danh sách giáo viên...</div>}
+        {teachersQuery.isError && <div className="m-5 flex gap-3 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-300"><AlertCircle size={19} /><div><strong>Không thể tải danh sách giáo viên</strong><span className="mt-1 block">{teachersQuery.error instanceof Error ? teachersQuery.error.message : 'Vui lòng thử lại sau.'}</span></div></div>}
+        {teachersQuery.isSuccess && filteredTeachers.length === 0 && <div className="grid min-h-64 place-items-center text-center"><div><Users size={34} className="mx-auto text-muted" /><p className="mb-0 mt-3 font-semibold">Không tìm thấy giáo viên</p></div></div>}
+
+        {teachersQuery.isSuccess && filteredTeachers.length > 0 && <Table>
+          <TableHeader><TableRow><TableHead>Giáo viên</TableHead><TableHead>Tài khoản</TableHead><TableHead>Liên hệ</TableHead><TableHead>Địa chỉ</TableHead><TableHead>Lương khác</TableHead><TableHead className="text-right">Thao tác</TableHead></TableRow></TableHeader>
+          <TableBody>{filteredTeachers.map((teacher) => <TableRow key={teacher._id}>
+            <TableCell><div className="flex min-w-44 items-center gap-3"><span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-primary/10 font-bold text-primary">{teacher.name.charAt(0).toUpperCase()}</span><div><strong className="block">{teacher.name}</strong><span className="text-xs text-muted">Tạo ngày {formatDate(teacher.createdAt)}</span></div></div></TableCell>
+            <TableCell className="font-medium">{teacher.account}</TableCell>
+            <TableCell><div className="min-w-40"><span className="block">{teacher.phone}</span><span className="mt-1 block text-xs text-muted">{teacher.email}</span></div></TableCell>
+            <TableCell className="min-w-48 text-muted">{teacher.address}</TableCell>
+            <TableCell className="whitespace-nowrap font-medium">{formatMoney(teacher.otherSalary)}</TableCell>
+            <TableCell><div className="flex min-w-44 justify-end gap-2"><Button type="button" variant="secondary" size="sm" onClick={() => setDetailTeacher(teacher)}><Eye size={14} />Thông tin</Button><Button type="button" size="sm" onClick={() => setEditingTeacher(teacher)}><Pencil size={14} />Chỉnh sửa</Button></div></TableCell>
+          </TableRow>)}</TableBody>
+        </Table>}
+      </Card>
+
+      <Modal open={Boolean(detailTeacher)} onClose={() => setDetailTeacher(null)} title={detailTeacher?.name || 'Thông tin giáo viên'} description="Hồ sơ và thông tin lương" className="max-h-[90vh] max-w-2xl overflow-y-auto">
+        {detailTeacher && <dl className="m-0 grid gap-3 sm:grid-cols-2"><InfoItem label="Tài khoản" value={detailTeacher.account} /><InfoItem label="Email" value={detailTeacher.email} /><InfoItem label="Số điện thoại" value={detailTeacher.phone} /><InfoItem label="Lương khác" value={formatMoney(detailTeacher.otherSalary)} /><InfoItem label="Ngân hàng" value={detailTeacher.nameBank} /><InfoItem label="Số tài khoản" value={detailTeacher.accountBank} /><InfoItem label="Địa chỉ" value={detailTeacher.address} wide /><InfoItem label="Mô tả" value={detailTeacher.description} wide /></dl>}
+      </Modal>
+
+      <Modal open={Boolean(editingTeacher)} onClose={() => !updateMutation.isPending && setEditingTeacher(null)} title="Chỉnh sửa giáo viên" description={editingTeacher?.name} className="max-h-[90vh] max-w-3xl overflow-y-auto">
+        {editingTeacher && <form onSubmit={handleEdit} className="grid gap-5"><div className="grid gap-4 sm:grid-cols-2"><Field label="Họ và tên"><input name="name" required defaultValue={editingTeacher.name} className={inputClass} /></Field><Field label="Tài khoản"><input name="account" required defaultValue={editingTeacher.account} className={inputClass} /></Field><Field label="Email"><input name="email" type="email" required defaultValue={editingTeacher.email} className={inputClass} /></Field><Field label="Số điện thoại"><input name="phone" required defaultValue={editingTeacher.phone} className={inputClass} /></Field><Field label="Lương khác"><input name="otherSalary" type="number" min="0" step="1000" defaultValue={editingTeacher.otherSalary} className={inputClass} /></Field><Field label="Tên ngân hàng"><input name="nameBank" defaultValue={editingTeacher.nameBank} className={inputClass} /></Field><Field label="Số tài khoản"><input name="accountBank" defaultValue={editingTeacher.accountBank} className={inputClass} /></Field><Field label="Địa chỉ" wide><input name="address" required defaultValue={editingTeacher.address} className={inputClass} /></Field><Field label="Mô tả" wide><textarea name="description" rows={3} defaultValue={editingTeacher.description} className="rounded-xl border border-border bg-app-background p-3 font-normal outline-none focus:border-primary" /></Field></div><div className="flex justify-end gap-2 border-t border-border pt-4"><Button type="button" variant="secondary" onClick={() => setEditingTeacher(null)} disabled={updateMutation.isPending}>Hủy</Button><Button type="submit" disabled={updateMutation.isPending}>{updateMutation.isPending && <Loader2 size={16} className="spin" />}Lưu thay đổi</Button></div></form>}
+      </Modal>
+    </div>
+  )
+}
