@@ -1,5 +1,5 @@
 import type { LucideIcon } from 'lucide-react'
-import { GraduationCap, History, LayoutDashboard, Presentation, UserRoundCog, Users } from 'lucide-react'
+import { GraduationCap, History, LayoutDashboard, Presentation, ReceiptText, UserRoundCog, Users, WalletCards } from 'lucide-react'
 
 export interface NavLeafItem {
   id: string
@@ -58,6 +58,19 @@ export const ADMIN_NAV_ITEMS: NavItem[] = [
         label: 'Quản lý',
         to: '/teachers',
         icon: UserRoundCog,
+      },
+    ],
+  },
+  {
+    id: 'costs',
+    label: 'Chi phí',
+    icon: WalletCards,
+    children: [
+      {
+        id: 'costs-management',
+        label: 'Quản lý',
+        to: '/costs',
+        icon: ReceiptText,
       },
     ],
   },

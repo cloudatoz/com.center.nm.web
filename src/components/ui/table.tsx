@@ -7,7 +7,7 @@ export function Table({
   ...props
 }: HTMLAttributes<HTMLTableElement> & { containerClassName?: string }) {
   return (
-    <div className={cx('w-full overflow-x-auto', containerClassName)}>
+    <div className={cx('w-full max-w-full min-w-0 overflow-x-auto', containerClassName)}>
       <table className={cx('w-full border-collapse text-left text-sm', className)} {...props} />
     </div>
   )

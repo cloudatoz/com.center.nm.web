@@ -10,6 +10,7 @@ const DashboardPage = lazy(() => import('@/pages/app/dashboard'))
 const StudentsPage = lazy(() => import('@/pages/app/students'))
 const StudentHistoryPage = lazy(() => import('@/pages/app/students/history'))
 const TeachersPage = lazy(() => import('@/pages/app/teachers'))
+const CostsPage = lazy(() => import('@/pages/app/costs'))
 const NotFoundPage = lazy(() => import('@/pages/error/not-found'))
 
 function LoadingScreen() {
@@ -52,6 +53,7 @@ const router = createBrowserRouter([
       { path: 'students', element: <StudentsPage /> },
       { path: 'students/history', element: <StudentHistoryPage /> },
       { path: 'teachers', element: <TeachersPage /> },
+      { path: 'costs', element: <CostsPage /> },
     ],
   },
   { path: '*', element: <NotFoundPage /> },
