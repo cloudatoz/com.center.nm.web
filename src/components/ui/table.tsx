@@ -1,9 +1,13 @@
 import type { HTMLAttributes, TdHTMLAttributes, ThHTMLAttributes } from 'react'
 import { cx } from '@/lib/utils'
 
-export function Table({ className, ...props }: HTMLAttributes<HTMLTableElement>) {
+export function Table({
+  className,
+  containerClassName,
+  ...props
+}: HTMLAttributes<HTMLTableElement> & { containerClassName?: string }) {
   return (
-    <div className="w-full overflow-x-auto">
+    <div className={cx('w-full overflow-x-auto', containerClassName)}>
       <table className={cx('w-full border-collapse text-left text-sm', className)} {...props} />
     </div>
   )

@@ -8,6 +8,7 @@ import { useThemeStore } from '@/stores/theme-store'
 const LoginPage = lazy(() => import('@/pages/auth/login'))
 const DashboardPage = lazy(() => import('@/pages/app/dashboard'))
 const StudentsPage = lazy(() => import('@/pages/app/students'))
+const StudentHistoryPage = lazy(() => import('@/pages/app/students/history'))
 const TeachersPage = lazy(() => import('@/pages/app/teachers'))
 const NotFoundPage = lazy(() => import('@/pages/error/not-found'))
 
@@ -49,6 +50,7 @@ const router = createBrowserRouter([
     children: [
       { path: 'dashboard', element: <DashboardPage /> },
       { path: 'students', element: <StudentsPage /> },
+      { path: 'students/history', element: <StudentHistoryPage /> },
       { path: 'teachers', element: <TeachersPage /> },
     ],
   },

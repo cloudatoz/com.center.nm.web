@@ -1,5 +1,5 @@
 import type { LucideIcon } from 'lucide-react'
-import { GraduationCap, LayoutDashboard, Presentation, UserRoundCog, Users } from 'lucide-react'
+import { GraduationCap, History, LayoutDashboard, Presentation, UserRoundCog, Users } from 'lucide-react'
 
 export interface NavLeafItem {
   id: string
@@ -40,6 +40,12 @@ export const ADMIN_NAV_ITEMS: NavItem[] = [
         to: '/students',
         icon: Users,
       },
+      {
+        id: 'students-history',
+        label: 'Lịch sử học',
+        to: '/students/history',
+        icon: History,
+      },
     ],
   },
   {
@@ -71,5 +77,7 @@ export function getAllNavLeaves(): NavLeafItem[] {
 
 export function getPageTitle(pathname: string) {
   const leaves = getAllNavLeaves()
-  return leaves.find((item) => pathname.startsWith(item.to))?.label || 'VG Admin Portal'
+  return leaves
+    .filter((item) => pathname.startsWith(item.to))
+    .sort((left, right) => right.to.length - left.to.length)[0]?.label || 'VG Admin Portal'
 }

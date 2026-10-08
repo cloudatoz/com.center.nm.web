@@ -9,9 +9,18 @@ const attendanceDaySchema = z.object({
   specialSalary: z.number().optional(),
 })
 
+const attendanceChildSchema = z.object({
+  _id: z.coerce.string(),
+  name: z.string(),
+  avatar: z.string().optional().default(''),
+  birthDate: z.string().optional().nullable(),
+  gender: z.string().optional().default(''),
+  type: z.union([z.array(z.string()), z.string()]).optional().default([]),
+})
+
 const monthlyAttendanceSchema = z.object({
   _id: z.string(),
-  children: z.union([z.coerce.string(), z.object({ _id: z.coerce.string() }).passthrough()]),
+  children: z.union([attendanceChildSchema, z.coerce.string()]),
   month: z.string(),
   type: z.enum(['THEO_BUOI', 'BAN_TRU']),
   days: z.array(attendanceDaySchema).default([]),
@@ -37,9 +46,11 @@ export async function getChildMonthlyAttendance(childId: string, month: string, 
   return parsed.data.find((attendance) => attendance.month === month && attendance.type === type) || null
 }
 
-export async function getMonthlyAttendances(month: string) {
+export async function getMonthlyAttendances(month: string, type?: AttendanceType | 'ALL') {
   const [year, monthNumber] = month.split('-')
-  const response = await apiClient.get(`/v1/attendance/monthly/${Number(monthNumber)}/${year}`)
+  const response = await apiClient.get(`/v1/attendance/monthly/${Number(monthNumber)}/${year}`, {
+    params: type && type !== 'ALL' ? { type } : undefined,
+  })
   const parsed = z.array(monthlyAttendanceSchema).safeParse(unwrapPayload<unknown>(response.data))
   if (!parsed.success) throw new ApiContractError('Dữ liệu trạng thái điểm danh không đúng định dạng')
   return parsed.data
