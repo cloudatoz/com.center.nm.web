@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { AlertCircle, Eye, Loader2, Pencil, RefreshCw, Search, Users } from 'lucide-react'
+import { AlertCircle, Eye, Loader2, Pencil, RefreshCw, Search, Trash2, Users } from 'lucide-react'
 import { type FormEvent, useMemo, useState } from 'react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
@@ -7,7 +7,7 @@ import { Card, CardHeader } from '@/components/ui/card'
 import { Modal } from '@/components/ui/modal'
 import { PageHeader } from '@/components/ui/page-header'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-import { getTeachers, type Teacher, updateTeacher } from '@/services/apis/teachers-api'
+import { deleteTeacher, getTeachers, type Teacher, updateTeacher } from '@/services/apis/teachers-api'
 
 const inputClass = 'h-10 rounded-xl border border-border bg-app-background px-3 font-normal outline-none focus:border-primary'
 const formatMoney = (value: number) => `${Number(value || 0).toLocaleString('vi-VN')} đ`
@@ -41,6 +41,14 @@ export default function TeachersPage() {
     },
     onError: (error) => toast.error(error instanceof Error ? error.message : 'Không thể cập nhật'),
   })
+  const deleteMutation = useMutation({
+    mutationFn: deleteTeacher,
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['teachers'] })
+      toast.success('Đã chuyển giáo viên sang trạng thái ngừng hoạt động')
+    },
+    onError: (error) => toast.error(error instanceof Error ? error.message : 'Không thể xóa giáo viên'),
+  })
 
   const filteredTeachers = useMemo(() => {
     const keyword = search.trim().toLocaleLowerCase('vi')
@@ -65,6 +73,11 @@ export default function TeachersPage() {
         address: String(form.get('address') || '').trim(),
         description: String(form.get('description') || '').trim(),
         otherSalary: Number(form.get('otherSalary')) || 0,
+        type: String(form.get('type')) as Teacher['type'],
+        baseSalary: Number(form.get('baseSalary')) || 0,
+        insuranceSupport: Number(form.get('insuranceSupport')) || 0,
+        attendanceBonus: Number(form.get('attendanceBonus')) || 0,
+        sessionsPerDay: Number(form.get('sessionsPerDay')) || 0,
         accountBank: String(form.get('accountBank') || '').trim(),
         nameBank: String(form.get('nameBank') || '').trim(),
       },
@@ -83,24 +96,25 @@ export default function TeachersPage() {
         {teachersQuery.isSuccess && filteredTeachers.length === 0 && <div className="grid min-h-64 place-items-center text-center"><div><Users size={34} className="mx-auto text-muted" /><p className="mb-0 mt-3 font-semibold">Không tìm thấy giáo viên</p></div></div>}
 
         {teachersQuery.isSuccess && filteredTeachers.length > 0 && <Table>
-          <TableHeader><TableRow><TableHead>Giáo viên</TableHead><TableHead>Tài khoản</TableHead><TableHead>Liên hệ</TableHead><TableHead>Địa chỉ</TableHead><TableHead>Lương khác</TableHead><TableHead className="text-right">Thao tác</TableHead></TableRow></TableHeader>
+          <TableHeader><TableRow><TableHead>Giáo viên</TableHead><TableHead>Loại</TableHead><TableHead>Lương cơ bản</TableHead><TableHead>Hỗ trợ bảo hiểm</TableHead><TableHead>Chuyên cần</TableHead><TableHead>Tổng lương</TableHead><TableHead className="text-right">Thao tác</TableHead></TableRow></TableHeader>
           <TableBody>{filteredTeachers.map((teacher) => <TableRow key={teacher._id}>
-            <TableCell><div className="flex min-w-44 items-center gap-3"><span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-primary/10 font-bold text-primary">{teacher.name.charAt(0).toUpperCase()}</span><div><strong className="block">{teacher.name}</strong><span className="text-xs text-muted">Tạo ngày {formatDate(teacher.createdAt)}</span></div></div></TableCell>
-            <TableCell className="font-medium">{teacher.account}</TableCell>
-            <TableCell><div className="min-w-40"><span className="block">{teacher.phone}</span><span className="mt-1 block text-xs text-muted">{teacher.email}</span></div></TableCell>
-            <TableCell className="min-w-48 text-muted">{teacher.address}</TableCell>
-            <TableCell className="whitespace-nowrap font-medium">{formatMoney(teacher.otherSalary)}</TableCell>
-            <TableCell><div className="flex min-w-44 justify-end gap-2"><Button type="button" variant="secondary" size="sm" onClick={() => setDetailTeacher(teacher)}><Eye size={14} />Thông tin</Button><Button type="button" size="sm" onClick={() => setEditingTeacher(teacher)}><Pencil size={14} />Chỉnh sửa</Button></div></TableCell>
+            <TableCell><div className="flex min-w-44 items-center gap-3"><span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-primary/10 font-bold text-primary">{teacher.name.charAt(0).toUpperCase()}</span><div><strong className="block">{teacher.name}</strong><span className={`mt-1 inline-flex rounded-full px-2 py-0.5 text-[10px] font-bold ${teacher.active ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300' : 'bg-red-50 text-red-700 dark:bg-red-500/15 dark:text-red-300'}`}>{teacher.active ? 'Đang hoạt động' : 'Ngừng hoạt động'}</span></div></div></TableCell>
+            <TableCell><span className={`inline-flex rounded-full px-2 py-1 text-[10px] font-bold ${teacher.type === 'BAN_TRU' ? 'bg-blue-50 text-blue-700 dark:bg-blue-500/15 dark:text-blue-300' : 'bg-purple-50 text-purple-700 dark:bg-purple-500/15 dark:text-purple-300'}`}>{teacher.type === 'BAN_TRU' ? `Bán trú${teacher.sessionsPerDay ? ` · ${teacher.sessionsPerDay} buổi` : ''}` : 'Theo buổi'}</span></TableCell>
+            <TableCell className="whitespace-nowrap font-medium">{formatMoney(teacher.baseSalary)}</TableCell>
+            <TableCell className="whitespace-nowrap">{formatMoney(teacher.insuranceSupport)}</TableCell>
+            <TableCell className="whitespace-nowrap">{formatMoney(teacher.attendanceBonus)}</TableCell>
+            <TableCell className="whitespace-nowrap font-bold text-primary">{formatMoney(teacher.baseSalary + teacher.insuranceSupport + teacher.attendanceBonus + teacher.otherSalary)}</TableCell>
+            <TableCell><div className="flex min-w-64 justify-end gap-2"><Button type="button" variant="secondary" size="sm" onClick={() => setDetailTeacher(teacher)}><Eye size={14} />Thông tin</Button><Button type="button" size="sm" onClick={() => setEditingTeacher(teacher)}><Pencil size={14} />Chỉnh sửa</Button>{teacher.active && <Button type="button" variant="danger" size="sm" disabled={deleteMutation.isPending} onClick={() => { if (window.confirm(`Xóa giáo viên “${teacher.name}”? Giáo viên sẽ chuyển sang trạng thái ngừng hoạt động.`)) deleteMutation.mutate(teacher._id) }}><Trash2 size={14} />Xóa</Button>}</div></TableCell>
           </TableRow>)}</TableBody>
         </Table>}
       </Card>
 
       <Modal open={Boolean(detailTeacher)} onClose={() => setDetailTeacher(null)} title={detailTeacher?.name || 'Thông tin giáo viên'} description="Hồ sơ và thông tin lương" className="max-h-[90vh] max-w-2xl overflow-y-auto">
-        {detailTeacher && <dl className="m-0 grid gap-3 sm:grid-cols-2"><InfoItem label="Tài khoản" value={detailTeacher.account} /><InfoItem label="Email" value={detailTeacher.email} /><InfoItem label="Số điện thoại" value={detailTeacher.phone} /><InfoItem label="Lương khác" value={formatMoney(detailTeacher.otherSalary)} /><InfoItem label="Ngân hàng" value={detailTeacher.nameBank} /><InfoItem label="Số tài khoản" value={detailTeacher.accountBank} /><InfoItem label="Địa chỉ" value={detailTeacher.address} wide /><InfoItem label="Mô tả" value={detailTeacher.description} wide /></dl>}
+        {detailTeacher && <dl className="m-0 grid gap-3 sm:grid-cols-2"><InfoItem label="Loại giáo viên" value={detailTeacher.type === 'BAN_TRU' ? 'Bán trú' : 'Theo buổi'} /><InfoItem label="Số buổi/ngày" value={detailTeacher.sessionsPerDay || '—'} /><InfoItem label="Lương cơ bản" value={formatMoney(detailTeacher.baseSalary)} /><InfoItem label="Hỗ trợ bảo hiểm" value={formatMoney(detailTeacher.insuranceSupport)} /><InfoItem label="Chuyên cần" value={formatMoney(detailTeacher.attendanceBonus)} /><InfoItem label="Lương khác" value={formatMoney(detailTeacher.otherSalary)} /><InfoItem label="Tài khoản" value={detailTeacher.account} /><InfoItem label="Email" value={detailTeacher.email} /><InfoItem label="Số điện thoại" value={detailTeacher.phone} /><InfoItem label="Tổng lương" value={formatMoney(detailTeacher.baseSalary + detailTeacher.insuranceSupport + detailTeacher.attendanceBonus + detailTeacher.otherSalary)} /><InfoItem label="Ngân hàng" value={detailTeacher.nameBank} /><InfoItem label="Số tài khoản" value={detailTeacher.accountBank} /><InfoItem label="Địa chỉ" value={detailTeacher.address} wide /><InfoItem label="Mô tả" value={detailTeacher.description} wide /></dl>}
       </Modal>
 
       <Modal open={Boolean(editingTeacher)} onClose={() => !updateMutation.isPending && setEditingTeacher(null)} title="Chỉnh sửa giáo viên" description={editingTeacher?.name} className="max-h-[90vh] max-w-3xl overflow-y-auto">
-        {editingTeacher && <form onSubmit={handleEdit} className="grid gap-5"><div className="grid gap-4 sm:grid-cols-2"><Field label="Họ và tên"><input name="name" required defaultValue={editingTeacher.name} className={inputClass} /></Field><Field label="Tài khoản"><input name="account" required defaultValue={editingTeacher.account} className={inputClass} /></Field><Field label="Email"><input name="email" type="email" required defaultValue={editingTeacher.email} className={inputClass} /></Field><Field label="Số điện thoại"><input name="phone" required defaultValue={editingTeacher.phone} className={inputClass} /></Field><Field label="Lương khác"><input name="otherSalary" type="number" min="0" step="1000" defaultValue={editingTeacher.otherSalary} className={inputClass} /></Field><Field label="Tên ngân hàng"><input name="nameBank" defaultValue={editingTeacher.nameBank} className={inputClass} /></Field><Field label="Số tài khoản"><input name="accountBank" defaultValue={editingTeacher.accountBank} className={inputClass} /></Field><Field label="Địa chỉ" wide><input name="address" required defaultValue={editingTeacher.address} className={inputClass} /></Field><Field label="Mô tả" wide><textarea name="description" rows={3} defaultValue={editingTeacher.description} className="rounded-xl border border-border bg-app-background p-3 font-normal outline-none focus:border-primary" /></Field></div><div className="flex justify-end gap-2 border-t border-border pt-4"><Button type="button" variant="secondary" onClick={() => setEditingTeacher(null)} disabled={updateMutation.isPending}>Hủy</Button><Button type="submit" disabled={updateMutation.isPending}>{updateMutation.isPending && <Loader2 size={16} className="spin" />}Lưu thay đổi</Button></div></form>}
+        {editingTeacher && <form onSubmit={handleEdit} className="grid gap-5"><div className="grid gap-4 sm:grid-cols-2"><Field label="Họ và tên"><input name="name" required defaultValue={editingTeacher.name} className={inputClass} /></Field><Field label="Loại giáo viên"><select name="type" defaultValue={editingTeacher.type} className={inputClass}><option value="BAN_TRU">Bán trú</option><option value="THEO_BUOI">Theo buổi</option></select></Field><Field label="Lương cơ bản"><input name="baseSalary" type="number" min="0" step="1000" defaultValue={editingTeacher.baseSalary} className={inputClass} /></Field><Field label="Hỗ trợ bảo hiểm"><input name="insuranceSupport" type="number" min="0" step="1000" defaultValue={editingTeacher.insuranceSupport} className={inputClass} /></Field><Field label="Chuyên cần"><input name="attendanceBonus" type="number" min="0" step="1000" defaultValue={editingTeacher.attendanceBonus} className={inputClass} /></Field><Field label="Số buổi/ngày"><input name="sessionsPerDay" type="number" min="0" step="1" defaultValue={editingTeacher.sessionsPerDay} className={inputClass} /></Field><Field label="Lương khác"><input name="otherSalary" type="number" min="0" step="1000" defaultValue={editingTeacher.otherSalary} className={inputClass} /></Field><Field label="Tài khoản"><input name="account" required defaultValue={editingTeacher.account} className={inputClass} /></Field><Field label="Email"><input name="email" type="email" required defaultValue={editingTeacher.email} className={inputClass} /></Field><Field label="Số điện thoại"><input name="phone" required defaultValue={editingTeacher.phone} className={inputClass} /></Field><Field label="Tên ngân hàng"><input name="nameBank" defaultValue={editingTeacher.nameBank} className={inputClass} /></Field><Field label="Số tài khoản"><input name="accountBank" defaultValue={editingTeacher.accountBank} className={inputClass} /></Field><Field label="Địa chỉ" wide><input name="address" required defaultValue={editingTeacher.address} className={inputClass} /></Field><Field label="Mô tả" wide><textarea name="description" rows={3} defaultValue={editingTeacher.description} className="rounded-xl border border-border bg-app-background p-3 font-normal outline-none focus:border-primary" /></Field></div><div className="flex justify-end gap-2 border-t border-border pt-4"><Button type="button" variant="secondary" onClick={() => setEditingTeacher(null)} disabled={updateMutation.isPending}>Hủy</Button><Button type="submit" disabled={updateMutation.isPending}>{updateMutation.isPending && <Loader2 size={16} className="spin" />}Lưu thay đổi</Button></div></form>}
       </Modal>
     </div>
   )

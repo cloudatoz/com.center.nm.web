@@ -5,6 +5,10 @@ const attendanceDaySchema = z.object({
   date: z.string(),
   status: z.enum(['present', 'absent']),
   spendTime: z.number().default(1),
+  teacherId: z.coerce.string().optional(),
+  teacherName: z.string().optional(),
+  salaryTeacher: z.number().optional().default(0),
+  tuitionFee: z.number().optional().default(0),
   notes: z.string().optional(),
   specialSalary: z.number().optional(),
 })
@@ -16,6 +20,16 @@ const attendanceChildSchema = z.object({
   birthDate: z.string().optional().nullable(),
   gender: z.string().optional().default(''),
   type: z.union([z.array(z.string()), z.string()]).optional().default([]),
+  salaryTeacher: z.number().optional().default(0),
+  tuitionFee: z.number().optional().default(0),
+  salaryOneHourForCenter: z.number().optional().default(0),
+  mealFee: z.number().optional().default(0),
+  csvcFee: z.number().optional().default(0),
+  drawingFee: z.number().optional().default(0),
+  languageFee: z.number().optional().default(0),
+  movementFee: z.number().optional().default(0),
+  teacherId: z.coerce.string().optional().nullable(),
+  teacherName: z.string().optional().default(''),
 })
 
 const monthlyAttendanceSchema = z.object({
@@ -56,15 +70,21 @@ export async function getMonthlyAttendances(month: string, type?: AttendanceType
   return parsed.data
 }
 
-export async function createAttendance(childId: string, date: string, spendTime: number, type: AttendanceType) {
+export async function createAttendance(childId: string, date: string, spendTime: number, type: AttendanceType, teacherId?: string) {
   const response = await apiClient.post('/v1/attendance', {
     children: Number(childId), date, status: 'present', spendTime, type,
+    ...(teacherId ? { teacherId: Number(teacherId) } : {}),
   })
   return parseMonthlyAttendance(response.data)
 }
 
 export async function deleteAttendanceDay(childId: string, date: string, type: AttendanceType) {
   await apiClient.delete(`/v1/attendance/by-date/${childId}`, { data: { date, type } })
+}
+
+export async function updateAttendanceDay(id: string, date: string, spendTime: number, teacherId?: string) {
+  const response = await apiClient.put(`/v1/attendance/update/${id}`, { date, spendTime, ...(teacherId ? { teacherId: Number(teacherId) } : {}) })
+  return parseMonthlyAttendance(response.data)
 }
 
 export async function setAttendanceCompleted(id: string, isCompleted: boolean) {

@@ -10,6 +10,12 @@ const teacherSchema = z.object({
   address: z.string(),
   description: z.string().optional().default(''),
   otherSalary: z.number().optional().default(0),
+  type: z.enum(['BAN_TRU', 'THEO_BUOI']).optional().default('THEO_BUOI'),
+  baseSalary: z.number().optional().default(0),
+  insuranceSupport: z.number().optional().default(0),
+  attendanceBonus: z.number().optional().default(0),
+  sessionsPerDay: z.number().optional().default(0),
+  active: z.boolean().optional().default(true),
   accountBank: z.string().optional().default(''),
   nameBank: z.string().optional().default(''),
   createdAt: z.string().optional(),
@@ -30,4 +36,8 @@ export async function updateTeacher(id: string, input: UpdateTeacherInput): Prom
   const parsed = teacherSchema.safeParse(unwrapPayload<unknown>(response.data))
   if (!parsed.success) throw new ApiContractError('Dữ liệu giáo viên sau khi cập nhật không đúng định dạng')
   return parsed.data
+}
+
+export async function deleteTeacher(id: string): Promise<void> {
+  await apiClient.delete(`/v1/teacher/${id}`)
 }
