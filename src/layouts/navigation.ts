@@ -59,6 +59,12 @@ export const ADMIN_NAV_ITEMS: NavItem[] = [
         to: '/teachers',
         icon: UserRoundCog,
       },
+      {
+        id: 'teachers-history',
+        label: 'Lịch sử dạy',
+        to: '/teachers/history',
+        icon: History,
+      },
     ],
   },
   {

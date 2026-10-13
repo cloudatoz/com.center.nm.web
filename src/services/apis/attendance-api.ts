@@ -11,6 +11,7 @@ const attendanceDaySchema = z.object({
   tuitionFee: z.number().optional().default(0),
   absent: z.boolean().optional().default(false),
   refund: z.number().optional().default(0),
+  lessonType: z.string().optional().default('HỌC'),
   notes: z.string().optional(),
   specialSalary: z.number().optional(),
 })
@@ -84,8 +85,8 @@ export async function deleteAttendanceDay(childId: string, date: string, type: A
   await apiClient.delete(`/v1/attendance/by-date/${childId}`, { data: { date, type } })
 }
 
-export async function updateAttendanceDay(id: string, date: string, spendTime: number, teacherId?: string, absent = false, refund = 0, notes = '') {
-  const response = await apiClient.put(`/v1/attendance/update/${id}`, { date, spendTime, absent, refund, notes, ...(teacherId && !absent ? { teacherId: Number(teacherId) } : {}) })
+export async function updateAttendanceDay(id: string, date: string, spendTime: number, teacherId?: string, absent = false, refund = 0, notes = '', lessonType = 'HỌC') {
+  const response = await apiClient.put(`/v1/attendance/update/${id}`, { date, spendTime, absent, refund, notes, lessonType, ...(teacherId && !absent ? { teacherId: Number(teacherId) } : {}) })
   return parseMonthlyAttendance(response.data)
 }
 

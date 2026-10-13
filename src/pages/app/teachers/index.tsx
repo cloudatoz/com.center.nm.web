@@ -7,6 +7,7 @@ import { Card, CardHeader } from '@/components/ui/card'
 import { Modal } from '@/components/ui/modal'
 import { PageHeader } from '@/components/ui/page-header'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { getMonthlyAttendances } from '@/services/apis/attendance-api'
 import { deleteTeacher, getSalaryMonth, getTeachers, type Teacher, updateTeacher } from '@/services/apis/teachers-api'
 
 const inputClass = 'h-10 rounded-xl border border-border bg-app-background px-3 font-normal outline-none focus:border-primary'
@@ -38,6 +39,7 @@ export default function TeachersPage() {
   const [salaryYear, salaryMonthNumber] = salaryMonth.split('-').map(Number)
   const teachersQuery = useQuery({ queryKey: ['teachers'], queryFn: getTeachers })
   const salaryMonthQuery = useQuery({ queryKey: ['salary-month', salaryMonth], queryFn: () => getSalaryMonth(salaryMonth) })
+  const monthlyAttendanceQuery = useQuery({ queryKey: ['teacher-monthly-history', salaryMonth], queryFn: () => getMonthlyAttendances(salaryMonth, 'ALL') })
   const updateMutation = useMutation({
     mutationFn: ({ id, data }: { id: string; data: Partial<Teacher> }) => updateTeacher(id, data),
     onSuccess: async () => {
@@ -65,6 +67,25 @@ export default function TeachersPage() {
         .join(' ').toLocaleLowerCase('vi').includes(keyword),
     )
   }, [search, teachersQuery.data])
+
+  const monthlyTeachingByTeacher = useMemo(() => {
+    const result = new Map<string, { children: Map<string, { name: string; dates: number[] }>; totalHours: number }>()
+    for (const attendance of monthlyAttendanceQuery.data || []) {
+      if (typeof attendance.children === 'string') continue
+      for (const day of attendance.days) {
+        if (day.absent || !day.teacherId) continue
+        const teacher = result.get(day.teacherId) || { children: new Map<string, { name: string; dates: number[] }>(), totalHours: 0 }
+        const child = teacher.children.get(attendance.children._id) || { name: attendance.children.name, dates: [] }
+        const date = Number(day.date.slice(8, 10))
+        if (!child.dates.includes(date)) child.dates.push(date)
+        child.dates.sort((left, right) => left - right)
+        teacher.children.set(attendance.children._id, child)
+        teacher.totalHours += day.spendTime
+        result.set(day.teacherId, teacher)
+      }
+    }
+    return result
+  }, [monthlyAttendanceQuery.data])
 
   const handleEdit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -105,7 +126,10 @@ export default function TeachersPage() {
         {salaryMonthQuery.isLoading && <div className="flex min-h-32 items-center justify-center gap-2 text-sm text-muted"><Loader2 size={18} className="spin text-primary" />Đang tải lương tháng...</div>}
         {salaryMonthQuery.isError && <div className="m-5 rounded-xl bg-red-50 p-4 text-sm text-red-700">Không thể tải danh sách lương tháng.</div>}
         {salaryMonthQuery.data && salaryMonthQuery.data.salaries.length === 0 && <div className="grid min-h-32 place-items-center text-sm text-muted">Chưa có giáo viên hưởng lương theo tháng.</div>}
-        {salaryMonthQuery.data && salaryMonthQuery.data.salaries.length > 0 && <Table><TableHeader><TableRow><TableHead>Giáo viên</TableHead><TableHead>Lương cơ bản</TableHead><TableHead>Hỗ trợ bảo hiểm</TableHead><TableHead>Chuyên cần</TableHead><TableHead>Lương khác</TableHead><TableHead>Tổng lương</TableHead></TableRow></TableHeader><TableBody>{salaryMonthQuery.data.salaries.map((salary) => <TableRow key={salary.teacherId}><TableCell className="font-semibold">{salary.teacherName}</TableCell><TableCell>{formatMoney(salary.baseSalary)}</TableCell><TableCell>{formatMoney(salary.insuranceSupport)}</TableCell><TableCell>{formatMoney(salary.attendanceBonus)}</TableCell><TableCell>{formatMoney(salary.otherSalary)}</TableCell><TableCell className="font-bold text-primary">{formatMoney(salary.totalSalary)}</TableCell></TableRow>)}</TableBody></Table>}
+        {salaryMonthQuery.data && salaryMonthQuery.data.salaries.length > 0 && <Table><TableHeader><TableRow><TableHead>Giáo viên</TableHead><TableHead>Trẻ và ngày dạy</TableHead><TableHead>Số giờ</TableHead><TableHead>Lương cơ bản</TableHead><TableHead>Hỗ trợ bảo hiểm</TableHead><TableHead>Chuyên cần</TableHead><TableHead>Lương khác</TableHead><TableHead>Tổng lương</TableHead></TableRow></TableHeader><TableBody>{salaryMonthQuery.data.salaries.map((salary) => {
+          const teaching = monthlyTeachingByTeacher.get(salary.teacherId)
+          return <TableRow key={salary.teacherId}><TableCell className="font-semibold">{salary.teacherName}</TableCell><TableCell>{teaching?.children.size ? <div className="grid min-w-52 gap-1">{[...teaching.children.values()].map((child) => <span key={child.name}><strong>{child.name}:</strong> {child.dates.join(', ')}/{salaryMonthNumber}</span>)}</div> : '—'}</TableCell><TableCell className="whitespace-nowrap">{teaching?.totalHours ? `${teaching.totalHours} giờ` : '—'}</TableCell><TableCell>{formatMoney(salary.baseSalary)}</TableCell><TableCell>{formatMoney(salary.insuranceSupport)}</TableCell><TableCell>{formatMoney(salary.attendanceBonus)}</TableCell><TableCell>{formatMoney(salary.otherSalary)}</TableCell><TableCell className="font-bold text-primary">{formatMoney(salary.totalSalary)}</TableCell></TableRow>
+        })}</TableBody></Table>}
       </Card>
       <Card>
         <CardHeader title={`Danh sách Giáo Viên (${filteredTeachers.length})`} description="Tìm kiếm theo tên, tài khoản, email hoặc số điện thoại." action={<Button type="button" variant="secondary" size="compact" onClick={() => teachersQuery.refetch()} disabled={teachersQuery.isFetching}><RefreshCw size={15} className={teachersQuery.isFetching ? 'spin' : ''} />Làm mới</Button>} />
