@@ -10,11 +10,12 @@ const teacherSchema = z.object({
   address: z.string(),
   description: z.string().optional().default(''),
   otherSalary: z.number().optional().default(0),
-  type: z.enum(['BAN_TRU', 'THEO_BUOI']).optional().default('THEO_BUOI'),
+  type: z.enum(['BAN_TRU', 'THEO_BUOI', 'CA_NHAN']).optional().default('THEO_BUOI'),
   baseSalary: z.number().optional().default(0),
   insuranceSupport: z.number().optional().default(0),
   attendanceBonus: z.number().optional().default(0),
   sessionsPerDay: z.number().optional().default(0),
+  isSalaryByMonth: z.boolean().optional().default(false),
   active: z.boolean().optional().default(true),
   accountBank: z.string().optional().default(''),
   nameBank: z.string().optional().default(''),
@@ -40,4 +41,29 @@ export async function updateTeacher(id: string, input: UpdateTeacherInput): Prom
 
 export async function deleteTeacher(id: string): Promise<void> {
   await apiClient.delete(`/v1/teacher/${id}`)
+}
+
+const monthlySalaryItemSchema = z.object({
+  teacherId: z.coerce.string(),
+  teacherName: z.string(),
+  baseSalary: z.number().default(0),
+  insuranceSupport: z.number().default(0),
+  attendanceBonus: z.number().default(0),
+  otherSalary: z.number().default(0),
+  totalSalary: z.number().default(0),
+})
+
+const salaryMonthSchema = z.object({
+  _id: z.string(),
+  salaries: z.array(monthlySalaryItemSchema).default([]),
+  totalSalary: z.number().default(0),
+})
+
+export type SalaryMonth = z.infer<typeof salaryMonthSchema>
+
+export async function getSalaryMonth(month: string): Promise<SalaryMonth> {
+  const response = await apiClient.get(`/v1/salary-month/${month}`)
+  const parsed = salaryMonthSchema.safeParse(unwrapPayload<unknown>(response.data))
+  if (!parsed.success) throw new ApiContractError('Dữ liệu lương tháng không đúng định dạng')
+  return parsed.data
 }

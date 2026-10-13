@@ -4,9 +4,11 @@ import { useMemo, useState } from 'react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Card, CardHeader } from '@/components/ui/card'
+import { Modal } from '@/components/ui/modal'
 import { PageHeader } from '@/components/ui/page-header'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { createAttendance, deleteAttendanceDay, type AttendanceType, getMonthlyAttendances, type MonthlyAttendance, setAttendanceCompleted, updateAttendanceDay } from '@/services/apis/attendance-api'
+import { getTeachers } from '@/services/apis/teachers-api'
 
 type TypeFilter = AttendanceType | 'ALL'
 
@@ -37,12 +39,13 @@ function attendanceTotals(attendance: MonthlyAttendance) {
   if (attendance.type === 'BAN_TRU') {
     return {
       revenue: (child?.tuitionFee || 0) + (child?.mealFee || 0) + (child?.csvcFee || 0) +
-        (child?.drawingFee || 0) + (child?.languageFee || 0) + (child?.movementFee || 0),
+        (child?.drawingFee || 0) + (child?.languageFee || 0) + (child?.movementFee || 0) -
+        attendance.days.reduce((total, day) => total + day.refund, 0),
       expense: 0,
     }
   }
   return attendance.days.reduce((total, day) => ({
-    revenue: total.revenue + day.spendTime * (day.tuitionFee || child?.salaryOneHourForCenter || 0),
+    revenue: total.revenue + day.spendTime * (day.tuitionFee || child?.salaryOneHourForCenter || 0) - day.refund,
     expense: total.expense + day.spendTime * (day.salaryTeacher || child?.salaryTeacher || 0),
   }), { revenue: 0, expense: 0 })
 }
@@ -51,6 +54,15 @@ export default function StudentHistoryPage() {
   const queryClient = useQueryClient()
   const [month, setMonth] = useState(currentMonth)
   const [type, setType] = useState<TypeFilter>('ALL')
+  const [childFilter, setChildFilter] = useState('ALL')
+  const [teacherFilter, setTeacherFilter] = useState('ALL')
+  const [editingDay, setEditingDay] = useState<{ attendanceId: string; attendanceType: AttendanceType; date: string; day: MonthlyAttendance['days'][number]; defaultTeacherId?: string | null } | null>(null)
+  const [editSpendTime, setEditSpendTime] = useState('1')
+  const [customSpendTime, setCustomSpendTime] = useState(false)
+  const [editTeacherId, setEditTeacherId] = useState('')
+  const [editAbsent, setEditAbsent] = useState(false)
+  const [editRefund, setEditRefund] = useState('0')
+  const [editNotes, setEditNotes] = useState('')
   const [editingIds, setEditingIds] = useState<Set<string>>(new Set())
   const [selectedYear, selectedMonth] = month.split('-').map(Number)
   const totalDays = useMemo(
@@ -64,6 +76,7 @@ export default function StudentHistoryPage() {
     queryKey: ['student-history', month, type],
     queryFn: () => getMonthlyAttendances(month, type),
   })
+  const teachersQuery = useQuery({ queryKey: ['teachers'], queryFn: getTeachers })
   const refreshHistory = () => queryClient.invalidateQueries({ queryKey: ['student-history', month, type] })
   const editModeMutation = useMutation({
     mutationFn: async ({ id, completed }: { id: string; completed: boolean }) => {
@@ -86,24 +99,50 @@ export default function StudentHistoryPage() {
     onError: (error) => toast.error(error instanceof Error ? error.message : 'Không thể lưu lịch sử học'),
   })
   const dayMutation = useMutation({
-    mutationFn: async ({ attendanceId, childId, date, attendanceType, attended, spendTime, defaultTeacherId }: { attendanceId: string; childId: string; date: string; attendanceType: AttendanceType; attended: boolean; spendTime?: number; defaultTeacherId?: string | null }) => {
+    mutationFn: async ({ attendanceId, childId, date, attendanceType, attended, spendTime, defaultTeacherId, absent, refund, notes }: { attendanceId: string; childId: string; date: string; attendanceType: AttendanceType; attended: boolean; spendTime?: number; defaultTeacherId?: string | null; absent?: boolean; refund?: number; notes?: string }) => {
       const selectedTeacherId = defaultTeacherId || undefined
       if (!attended) return createAttendance(childId, date, attendanceType === 'BAN_TRU' ? 0 : spendTime || 1, attendanceType, selectedTeacherId)
-      if (attendanceType === 'THEO_BUOI' && spendTime !== undefined) return updateAttendanceDay(attendanceId, date, spendTime, selectedTeacherId)
+      if (spendTime !== undefined) return updateAttendanceDay(attendanceId, date, spendTime, attendanceType === 'THEO_BUOI' ? selectedTeacherId : undefined, absent, refund, notes)
       return deleteAttendanceDay(childId, date, attendanceType)
     },
-    onSuccess: async () => { await refreshHistory(); toast.success('Đã cập nhật ngày học') },
+    onSuccess: async () => { setEditingDay(null); await refreshHistory(); toast.success('Đã cập nhật ngày học') },
     onError: (error) => toast.error(error instanceof Error ? error.message : 'Không thể cập nhật ngày học'),
   })
+  const childOptions = useMemo(() => {
+    const children = new Map<string, string>()
+    for (const attendance of attendanceQuery.data || []) {
+      if (typeof attendance.children !== 'string') {
+        children.set(attendance.children._id, attendance.children.name)
+      }
+    }
+    return [...children].sort((left, right) => left[1].localeCompare(right[1], 'vi'))
+  }, [attendanceQuery.data])
+  const teacherOptions = useMemo(() => {
+    const teachers = new Map<string, string>()
+    for (const attendance of attendanceQuery.data || []) {
+      const child = typeof attendance.children === 'string' ? null : attendance.children
+      if (child?.teacherId && child.teacherName) teachers.set(child.teacherId, child.teacherName)
+      for (const day of attendance.days) {
+        if (day.teacherId && day.teacherName) teachers.set(day.teacherId, day.teacherName)
+      }
+    }
+    return [...teachers].sort((left, right) => left[1].localeCompare(right[1], 'vi'))
+  }, [attendanceQuery.data])
   const historyRows = useMemo(
-    () => [...(attendanceQuery.data || [])].sort((left, right) => {
+    () => (attendanceQuery.data || []).filter((attendance) => {
+      const child = typeof attendance.children === 'string' ? null : attendance.children
+      const childId = typeof attendance.children === 'string' ? attendance.children : attendance.children._id
+      if (childFilter !== 'ALL' && childId !== childFilter) return false
+      if (teacherFilter === 'ALL') return true
+      return child?.teacherId === teacherFilter || attendance.days.some((day) => day.teacherId === teacherFilter)
+    }).sort((left, right) => {
       const leftId = typeof left.children === 'string' ? left.children : left.children._id
       const rightId = typeof right.children === 'string' ? right.children : right.children._id
       const childOrder = leftId.localeCompare(rightId, 'vi', { numeric: true })
       if (childOrder !== 0) return childOrder
       return left.type === right.type ? 0 : left.type === 'BAN_TRU' ? -1 : 1
     }),
-    [attendanceQuery.data],
+    [attendanceQuery.data, childFilter, teacherFilter],
   )
   const monthlyTotals = useMemo(
     () => historyRows.reduce((total, attendance) => {
@@ -145,6 +184,20 @@ export default function StudentHistoryPage() {
               <option value="ALL">Tất cả loại học</option>
               <option value="THEO_BUOI">Học theo buổi</option>
               <option value="BAN_TRU">Học bán trú</option>
+            </select>
+          </label>
+          <label className="grid gap-1.5 text-xs font-semibold text-muted">
+            Trẻ
+            <select value={childFilter} onChange={(event) => setChildFilter(event.target.value)} className="h-10 min-w-44 rounded-xl border border-border bg-surface px-3 text-sm font-medium text-text-main outline-none focus:border-primary">
+              <option value="ALL">Tất cả trẻ</option>
+              {childOptions.map(([id, name]) => <option key={id} value={id}>{name}</option>)}
+            </select>
+          </label>
+          <label className="grid gap-1.5 text-xs font-semibold text-muted">
+            Giáo viên
+            <select value={teacherFilter} onChange={(event) => setTeacherFilter(event.target.value)} className="h-10 min-w-44 rounded-xl border border-border bg-surface px-3 text-sm font-medium text-text-main outline-none focus:border-primary">
+              <option value="ALL">Tất cả giáo viên</option>
+              {teacherOptions.map(([id, name]) => <option key={id} value={id}>{name}</option>)}
             </select>
           </label>
         </div>
@@ -204,7 +257,7 @@ export default function StudentHistoryPage() {
                         <div className="min-w-0">
                           <strong className="block max-w-40 truncate">{child?.name || `Trẻ #${attendance.children}`}</strong>
                           <span className="block text-xs text-muted">{formatBirthDate(child?.birthDate)}</span>
-                          {sessionRow && <><span className="mt-1 block text-[10px] text-muted">GV: {child?.teacherName || 'Chưa cập nhật'}</span><span className="block text-[10px] text-muted">Lương GV 1h: <strong className="text-blue-600 dark:text-blue-400">{formatMoney(sessionSnapshot?.salaryTeacher || child?.salaryTeacher || 0)}</strong></span><span className="block text-[10px] text-muted">Học phí 1h: <strong className="text-red-600 dark:text-red-400">{formatMoney(sessionSnapshot?.tuitionFee || child?.salaryOneHourForCenter || 0)}</strong></span></>}
+                          {sessionRow && <><span className="mt-1 block text-[10px] text-muted">GV: <strong className="text-blue-600 dark:text-blue-400">{child?.teacherName || 'Chưa cập nhật'}</strong></span><span className="block text-[10px] text-muted">Lương GV 1h: <strong className="text-blue-600 dark:text-blue-400">{formatMoney(sessionSnapshot?.salaryTeacher || child?.salaryTeacher || 0)}</strong></span><span className="block text-[10px] text-muted">Học phí 1h: <strong className="text-red-600 dark:text-red-400">{formatMoney(sessionSnapshot?.tuitionFee || child?.salaryOneHourForCenter || 0)}</strong></span></>}
                           {boardingRow && <span className="mt-1 block text-[10px] text-muted">Học phí: {formatMoney(boardingSnapshot?.tuitionFee || child?.tuitionFee || 0)}</span>}
                         </div>
                       </div>
@@ -222,17 +275,20 @@ export default function StudentHistoryPage() {
                         <TableCell key={day} className="p-1 text-center">
                           <button type="button" disabled={!editingIds.has(attendance._id) || dayMutation.isPending} onClick={() => {
                             const date = `${month}-${String(day).padStart(2, '0')}`
-                            if (item && attendance.type === 'THEO_BUOI') {
-                              const value = window.prompt('Nhập số giờ học:', String(item.spendTime))
-                              if (value === null) return
-                              const spendTime = Number(value.replace(',', '.'))
-                              if (!Number.isFinite(spendTime) || spendTime <= 0) return toast.error('Số giờ học không hợp lệ')
-                              dayMutation.mutate({ attendanceId: attendance._id, childId, date, attendanceType: attendance.type, attended: true, spendTime, defaultTeacherId: child?.teacherId })
+                            if (item) {
+                              const value = String(item.spendTime)
+                              setEditingDay({ attendanceId: attendance._id, attendanceType: attendance.type, date, day: item, defaultTeacherId: child?.teacherId })
+                              setEditSpendTime(value)
+                              setCustomSpendTime(!['1', '1.5', '2', '2.5', '3'].includes(value))
+                              setEditTeacherId(item.teacherId || child?.teacherId || '')
+                              setEditAbsent(item.absent)
+                              setEditRefund(String(item.refund || 0))
+                              setEditNotes(item.notes || '')
                               return
                             }
                             if (attendance.type === 'THEO_BUOI' && !item && !child?.teacherId) return toast.error('Trẻ chưa có giáo viên mặc định')
                             dayMutation.mutate({ attendanceId: attendance._id, childId, date, attendanceType: attendance.type, attended: Boolean(item), defaultTeacherId: child?.teacherId })
-                          }} className={`mx-auto grid min-h-8 min-w-8 place-items-center rounded-lg px-1 py-1 text-[10px] font-bold transition ${item ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300' : 'text-muted/40'} ${editingIds.has(attendance._id) ? 'cursor-pointer ring-1 ring-primary/30 hover:bg-primary/10' : 'cursor-default'} disabled:opacity-70`} title={editingIds.has(attendance._id) ? item && attendance.type === 'THEO_BUOI' ? 'Bấm để sửa số giờ' : item ? 'Bấm để bỏ ngày học' : 'Bấm để thêm ngày học' : ''}>{item ? attendance.type === 'BAN_TRU' ? <Check size={15} /> : <span><span className="block">{item.spendTime}h</span>{item.teacherName && <span className="mt-0.5 block max-w-20 truncate font-medium">{item.teacherName}</span>}</span> : '—'}</button>
+                          }} className={`mx-auto grid min-h-8 min-w-8 place-items-center rounded-lg px-1 py-1 text-[10px] font-bold transition ${item ? item.absent ? 'bg-amber-50 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300' : 'bg-emerald-50 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300' : 'text-muted/40'} ${editingIds.has(attendance._id) ? 'cursor-pointer ring-1 ring-primary/30 hover:bg-primary/10' : 'cursor-default'} disabled:opacity-70`} title={editingIds.has(attendance._id) ? item ? 'Bấm để sửa buổi học' : 'Bấm để thêm ngày học' : ''}>{item ? attendance.type === 'BAN_TRU' ? <span><span className="block">{item.absent ? 'Nghỉ' : <Check size={15} />}</span>{item.refund > 0 && <span className="mt-0.5 block text-red-600">Hoàn {formatMoney(item.refund)}</span>}</span> : <span><span className="block">{item.absent ? 'Nghỉ' : `${item.spendTime}h`}</span>{!item.absent && item.teacherName && <span className="mt-0.5 block max-w-20 truncate font-medium">{item.teacherName}</span>}{item.refund > 0 && <span className="mt-0.5 block text-red-600">Hoàn {formatMoney(item.refund)}</span>}</span> : '—'}</button>
                         </TableCell>
                       )
                     })}
@@ -243,6 +299,65 @@ export default function StudentHistoryPage() {
           </Table>
         )}
       </Card>
+      <Modal
+        open={Boolean(editingDay)}
+        onClose={() => !dayMutation.isPending && setEditingDay(null)}
+        title="Chỉnh sửa buổi học"
+        description={editingDay ? new Date(`${editingDay.date}T00:00:00`).toLocaleDateString('vi-VN') : undefined}
+      >
+        <form onSubmit={(event) => {
+          event.preventDefault()
+          if (!editingDay) return
+          const spendTime = Number(editSpendTime.replace(',', '.'))
+          const refund = Number(editRefund) || 0
+          if (editingDay.attendanceType === 'THEO_BUOI' && (!Number.isFinite(spendTime) || spendTime <= 0)) return toast.error('Số giờ học không hợp lệ')
+          if (refund < 0) return toast.error('Số tiền hoàn không hợp lệ')
+          dayMutation.mutate({
+            attendanceId: editingDay.attendanceId,
+            childId: '',
+            date: editingDay.date,
+            attendanceType: editingDay.attendanceType,
+            attended: true,
+            spendTime: editingDay.attendanceType === 'BAN_TRU' ? 0 : spendTime,
+            defaultTeacherId: editTeacherId || editingDay.defaultTeacherId,
+            absent: editAbsent,
+            refund,
+            notes: editNotes.trim(),
+          })
+        }} className="grid gap-5">
+          {editingDay?.attendanceType === 'THEO_BUOI' && <label className="grid gap-2 text-sm font-semibold">
+            Thời lượng
+            <span className="flex flex-wrap gap-2">
+              {[1, 1.5, 2, 2.5, 3].map((hours) => <button key={hours} type="button" onClick={() => { setEditSpendTime(String(hours)); setCustomSpendTime(false) }} className={`h-10 rounded-xl border px-4 text-sm font-bold transition ${!customSpendTime && editSpendTime === String(hours) ? 'border-primary bg-primary text-white' : 'border-border bg-surface text-text-main hover:border-primary/50'}`}>{hours}h</button>)}
+              <button type="button" onClick={() => setCustomSpendTime(true)} className={`h-10 rounded-xl border px-4 text-sm font-bold transition ${customSpendTime ? 'border-primary bg-primary text-white' : 'border-border bg-surface text-text-main hover:border-primary/50'}`}>Tùy chỉnh</button>
+            </span>
+            {customSpendTime && <input value={editSpendTime} onChange={(event) => setEditSpendTime(event.target.value)} inputMode="decimal" placeholder="Nhập số giờ" className="h-10 rounded-xl border border-border bg-app-background px-3 font-normal outline-none focus:border-primary" />}
+          </label>}
+          {editingDay?.attendanceType === 'THEO_BUOI' && <label className="grid gap-2 text-sm font-semibold">
+            Giáo viên
+            <select value={editTeacherId} onChange={(event) => setEditTeacherId(event.target.value)} className="h-10 rounded-xl border border-border bg-app-background px-3 font-normal outline-none focus:border-primary">
+              <option value="">Chọn giáo viên</option>
+              {(teachersQuery.data || []).filter((teacher) => teacher.active).map((teacher) => <option key={teacher._id} value={teacher._id}>{teacher.name}</option>)}
+            </select>
+          </label>}
+          <label className="flex items-center gap-3 rounded-xl border border-border p-3 text-sm font-semibold">
+            <input type="checkbox" checked={editAbsent} onChange={(event) => setEditAbsent(event.target.checked)} className="h-4 w-4 accent-primary" />
+            Bé nghỉ buổi này
+          </label>
+          <label className="grid gap-2 text-sm font-semibold">
+            Hoàn tiền (refund)
+            <input type="number" min="0" step="1000" value={editRefund} onChange={(event) => setEditRefund(event.target.value)} className="h-10 rounded-xl border border-border bg-app-background px-3 font-normal outline-none focus:border-primary" />
+          </label>
+          <label className="grid gap-2 text-sm font-semibold">
+            Ghi chú
+            <textarea value={editNotes} onChange={(event) => setEditNotes(event.target.value)} rows={3} placeholder="Nhập ghi chú cho ngày này" className="rounded-xl border border-border bg-app-background px-3 py-2 font-normal outline-none focus:border-primary" />
+          </label>
+          <div className="flex justify-end gap-2 border-t border-border pt-4">
+            <Button type="button" variant="secondary" onClick={() => setEditingDay(null)} disabled={dayMutation.isPending}>Hủy</Button>
+            <Button type="submit" disabled={dayMutation.isPending}>{dayMutation.isPending && <Loader2 size={16} className="spin" />}Lưu thay đổi</Button>
+          </div>
+        </form>
+      </Modal>
     </div>
   )
 }

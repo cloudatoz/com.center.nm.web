@@ -25,7 +25,7 @@ export function isNavGroup(item: NavItem): item is NavGroupItem {
 export const ADMIN_NAV_ITEMS: NavItem[] = [
   {
     id: 'dashboard',
-    label: 'Dashboard',
+    label: 'Bảng Số Liệu',
     to: '/dashboard',
     icon: LayoutDashboard,
   },
