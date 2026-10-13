@@ -54,8 +54,8 @@ export default function StudentHistoryPage() {
   const queryClient = useQueryClient()
   const [month, setMonth] = useState(currentMonth)
   const [type, setType] = useState<TypeFilter>('ALL')
-  const [childFilter, setChildFilter] = useState('ALL')
-  const [teacherFilter, setTeacherFilter] = useState('ALL')
+  const [childFilter, setChildFilter] = useState('')
+  const [teacherFilter, setTeacherFilter] = useState('')
   const [editingDay, setEditingDay] = useState<{ attendanceId: string; attendanceType: AttendanceType; date: string; day: MonthlyAttendance['days'][number]; defaultTeacherId?: string | null } | null>(null)
   const [editSpendTime, setEditSpendTime] = useState('1')
   const [customSpendTime, setCustomSpendTime] = useState(false)
@@ -131,10 +131,13 @@ export default function StudentHistoryPage() {
   const historyRows = useMemo(
     () => (attendanceQuery.data || []).filter((attendance) => {
       const child = typeof attendance.children === 'string' ? null : attendance.children
-      const childId = typeof attendance.children === 'string' ? attendance.children : attendance.children._id
-      if (childFilter !== 'ALL' && childId !== childFilter) return false
-      if (teacherFilter === 'ALL') return true
-      return child?.teacherId === teacherFilter || attendance.days.some((day) => day.teacherId === teacherFilter)
+      const childKeyword = childFilter.trim().toLocaleLowerCase('vi')
+      const teacherKeyword = teacherFilter.trim().toLocaleLowerCase('vi')
+      if (childKeyword && !child?.name.toLocaleLowerCase('vi').includes(childKeyword)) return false
+      if (!teacherKeyword) return true
+      const teacherNames = [child?.teacherName, ...attendance.days.map((day) => day.teacherName)]
+        .filter(Boolean).join(' ').toLocaleLowerCase('vi')
+      return teacherNames.includes(teacherKeyword)
     }).sort((left, right) => {
       const leftId = typeof left.children === 'string' ? left.children : left.children._id
       const rightId = typeof right.children === 'string' ? right.children : right.children._id
@@ -188,17 +191,13 @@ export default function StudentHistoryPage() {
           </label>
           <label className="grid gap-1.5 text-xs font-semibold text-muted">
             Trẻ
-            <select value={childFilter} onChange={(event) => setChildFilter(event.target.value)} className="h-10 min-w-44 rounded-xl border border-border bg-surface px-3 text-sm font-medium text-text-main outline-none focus:border-primary">
-              <option value="ALL">Tất cả trẻ</option>
-              {childOptions.map(([id, name]) => <option key={id} value={id}>{name}</option>)}
-            </select>
+            <input type="search" list="history-child-options" value={childFilter} onChange={(event) => setChildFilter(event.target.value)} placeholder="Tìm theo tên trẻ..." className="h-10 min-w-52 rounded-xl border border-border bg-surface px-3 text-sm font-medium text-text-main outline-none focus:border-primary" />
+            <datalist id="history-child-options">{childOptions.map(([id, name]) => <option key={id} value={name} />)}</datalist>
           </label>
           <label className="grid gap-1.5 text-xs font-semibold text-muted">
             Giáo viên
-            <select value={teacherFilter} onChange={(event) => setTeacherFilter(event.target.value)} className="h-10 min-w-44 rounded-xl border border-border bg-surface px-3 text-sm font-medium text-text-main outline-none focus:border-primary">
-              <option value="ALL">Tất cả giáo viên</option>
-              {teacherOptions.map(([id, name]) => <option key={id} value={id}>{name}</option>)}
-            </select>
+            <input type="search" list="history-teacher-options" value={teacherFilter} onChange={(event) => setTeacherFilter(event.target.value)} placeholder="Tìm theo giáo viên..." className="h-10 min-w-52 rounded-xl border border-border bg-surface px-3 text-sm font-medium text-text-main outline-none focus:border-primary" />
+            <datalist id="history-teacher-options">{teacherOptions.map(([id, name]) => <option key={id} value={name} />)}</datalist>
           </label>
         </div>
 

@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { GraduationCap, Loader2, TrendingDown, TrendingUp, Users } from 'lucide-react'
-import { useMemo, useState } from 'react'
+import { useState } from 'react'
+import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { Card, CardHeader } from '@/components/ui/card'
 import { PageHeader } from '@/components/ui/page-header'
 import { getDashboardOverview } from '@/services/apis/dashboard-api'
@@ -16,7 +17,6 @@ export default function DashboardPage() {
   const [month, setMonth] = useState(now.getMonth() + 1)
   const overviewQuery = useQuery({ queryKey: ['dashboard-overview', year], queryFn: () => getDashboardOverview(year) })
   const selected = overviewQuery.data?.months[month - 1]
-  const chartMax = useMemo(() => Math.max(1, ...(overviewQuery.data?.months.flatMap((item) => [item.revenue, item.expense]) || [1])), [overviewQuery.data])
 
   return (
     <div className="grid gap-6">
@@ -37,11 +37,18 @@ export default function DashboardPage() {
         <div className="grid gap-4 lg:grid-cols-[minmax(0,2fr)_minmax(280px,1fr)]">
           <Card className="min-w-0 overflow-hidden">
             <CardHeader title={`Biểu đồ Thu - Chi năm ${year}`} description="So sánh tổng thu và tổng chi theo từng tháng." />
-            <div className="overflow-x-auto p-5 pt-2 sm:p-6 sm:pt-2">
-              <div className="flex min-h-72 min-w-[720px] items-end gap-3 border-b border-border pt-8">
-                {overviewQuery.data.months.map((item, index) => <div key={item.month} className="flex h-64 flex-1 flex-col justify-end gap-2 text-center"><div className="flex flex-1 items-end justify-center gap-1.5"><div title={`Thu: ${formatMoney(item.revenue)}`} className="w-4 rounded-t-md bg-emerald-500 transition-all" style={{ height: `${Math.max(item.revenue ? 4 : 0, item.revenue / chartMax * 100)}%` }} /><div title={`Chi: ${formatMoney(item.expense)}`} className="w-4 rounded-t-md bg-red-500 transition-all" style={{ height: `${Math.max(item.expense ? 4 : 0, item.expense / chartMax * 100)}%` }} /></div><span className={`pb-2 text-xs font-semibold ${month === index + 1 ? 'text-primary' : 'text-muted'}`}>T{index + 1}</span></div>)}
-              </div>
-              <div className="mt-4 flex flex-wrap items-center justify-between gap-3 text-xs text-muted"><div className="flex gap-4"><span className="flex items-center gap-2"><i className="h-2.5 w-2.5 rounded-sm bg-emerald-500" />Tổng thu</span><span className="flex items-center gap-2"><i className="h-2.5 w-2.5 rounded-sm bg-red-500" />Tổng chi</span></div><span>Mức cao nhất: {formatCompactMoney(chartMax)} đ</span></div>
+            <div className="h-80 min-w-0 p-4 pt-1 sm:p-6 sm:pt-2">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={overviewQuery.data.months.map((item, index) => ({ ...item, label: `T${index + 1}` }))} margin={{ top: 12, right: 8, left: 4, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="4 4" vertical={false} opacity={0.35} />
+                  <XAxis dataKey="label" tickLine={false} axisLine={false} fontSize={12} />
+                  <YAxis tickFormatter={(value) => formatCompactMoney(Number(value))} tickLine={false} axisLine={false} width={58} fontSize={11} />
+                  <Tooltip formatter={(value) => formatMoney(Number(value))} labelFormatter={(label) => `${label}/${year}`} contentStyle={{ borderRadius: 12, borderColor: 'var(--color-border)', background: 'var(--color-surface)' }} />
+                  <Legend />
+                  <Bar dataKey="revenue" name="Tổng thu" fill="#10b981" radius={[6, 6, 0, 0]} maxBarSize={28} />
+                  <Bar dataKey="expense" name="Tổng chi" fill="#ef4444" radius={[6, 6, 0, 0]} maxBarSize={28} />
+                </BarChart>
+              </ResponsiveContainer>
             </div>
           </Card>
           <Card>
