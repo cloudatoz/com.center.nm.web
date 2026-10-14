@@ -12,6 +12,7 @@ const StudentHistoryPage = lazy(() => import('@/pages/app/students/history'))
 const StudentReceiptsPage = lazy(() => import('@/pages/app/students/receipts'))
 const TeachersPage = lazy(() => import('@/pages/app/teachers'))
 const TeacherHistoryPage = lazy(() => import('@/pages/app/teachers/history'))
+const TeacherPaymentsPage = lazy(() => import('@/pages/app/teachers/payments'))
 const CostsPage = lazy(() => import('@/pages/app/costs'))
 const NotFoundPage = lazy(() => import('@/pages/error/not-found'))
 
@@ -57,6 +58,7 @@ const router = createBrowserRouter([
       { path: 'students/receipts', element: <StudentReceiptsPage /> },
       { path: 'teachers', element: <TeachersPage /> },
       { path: 'teachers/history', element: <TeacherHistoryPage /> },
+      { path: 'teachers/payments', element: <TeacherPaymentsPage /> },
       { path: 'costs', element: <CostsPage /> },
     ],
   },

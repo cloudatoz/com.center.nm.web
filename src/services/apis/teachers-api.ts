@@ -93,3 +93,28 @@ export async function updateMonthlySalary(
   if (!parsed.success) throw new ApiContractError('Dữ liệu lương tháng sau cập nhật không đúng định dạng')
   return parsed.data
 }
+
+const salaryPaymentSchema = z.object({
+  _id: z.string(),
+  month: z.string(),
+  teacherId: z.coerce.string(),
+  amount: z.number().default(0),
+  isPaid: z.boolean().default(false),
+  paidAt: z.string().nullable().optional(),
+})
+
+export type SalaryPayment = z.infer<typeof salaryPaymentSchema>
+
+export async function getSalaryPayments(month: string): Promise<SalaryPayment[]> {
+  const response = await apiClient.get(`/v1/salary-payment/${month}`)
+  const parsed = z.array(salaryPaymentSchema).safeParse(unwrapPayload<unknown>(response.data))
+  if (!parsed.success) throw new ApiContractError('Dữ liệu trạng thái chuyển lương không đúng định dạng')
+  return parsed.data
+}
+
+export async function updateSalaryPayment(month: string, teacherId: string, amount: number, isPaid: boolean): Promise<SalaryPayment> {
+  const response = await apiClient.put(`/v1/salary-payment/${month}/${teacherId}`, { amount, isPaid })
+  const parsed = salaryPaymentSchema.safeParse(unwrapPayload<unknown>(response.data))
+  if (!parsed.success) throw new ApiContractError('Dữ liệu chuyển lương sau cập nhật không đúng định dạng')
+  return parsed.data
+}

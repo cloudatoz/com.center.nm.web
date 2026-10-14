@@ -71,6 +71,12 @@ export const ADMIN_NAV_ITEMS: NavItem[] = [
         to: '/teachers/history',
         icon: History,
       },
+      {
+        id: 'teachers-payments',
+        label: 'Phiếu chi',
+        to: '/teachers/payments',
+        icon: ReceiptText,
+      },
     ],
   },
   {
