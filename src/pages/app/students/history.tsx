@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { CalendarCheck, CalendarDays, Check, CheckCircle2, Copy, FileImage, Loader2, Pencil, Table2, Trash2 } from 'lucide-react'
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { toBlob } from 'html-to-image'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
@@ -8,6 +8,7 @@ import { Card, CardHeader } from '@/components/ui/card'
 import { Modal } from '@/components/ui/modal'
 import { PageHeader } from '@/components/ui/page-header'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { getAccountBanks } from '@/services/apis/account-bank-api'
 import { createAttendance, deleteAttendanceDay, type AttendanceType, getMonthlyAttendances, type MonthlyAttendance, setAttendanceCompleted, updateAttendanceDay } from '@/services/apis/attendance-api'
 import { getTeachers } from '@/services/apis/teachers-api'
 
@@ -70,6 +71,7 @@ export default function StudentHistoryPage() {
   const [customLessonType, setCustomLessonType] = useState(false)
   const [receiptGroup, setReceiptGroup] = useState<{ childId: string; rows: MonthlyAttendance[] } | null>(null)
   const [copyingReceipt, setCopyingReceipt] = useState(false)
+  const [selectedBankId, setSelectedBankId] = useState('')
   const receiptRef = useRef<HTMLDivElement>(null)
   const [editingIds, setEditingIds] = useState<Set<string>>(new Set())
   const [selectedYear, selectedMonth] = month.split('-').map(Number)
@@ -89,6 +91,11 @@ export default function StudentHistoryPage() {
     queryFn: () => getMonthlyAttendances(month, type),
   })
   const teachersQuery = useQuery({ queryKey: ['teachers'], queryFn: getTeachers })
+  const accountBanksQuery = useQuery({ queryKey: ['account-banks'], queryFn: getAccountBanks })
+  useEffect(() => {
+    if (!selectedBankId && accountBanksQuery.data?.length) setSelectedBankId(accountBanksQuery.data[0]._id)
+  }, [accountBanksQuery.data, selectedBankId])
+  const selectedBank = accountBanksQuery.data?.find((bank) => bank._id === selectedBankId) || accountBanksQuery.data?.[0]
   const refreshHistory = () => queryClient.invalidateQueries({ queryKey: ['student-history', month, type] })
   const editModeMutation = useMutation({
     mutationFn: async ({ id, completed }: { id: string; completed: boolean }) => {
@@ -383,7 +390,7 @@ export default function StudentHistoryPage() {
                           <div className="flex flex-wrap items-center gap-2"><span className={`inline-flex rounded-full px-2 py-1 text-[10px] font-bold ${attendance.type === 'BAN_TRU' ? 'bg-blue-50 text-blue-700 dark:bg-blue-500/15 dark:text-blue-300' : 'bg-purple-50 text-purple-700 dark:bg-purple-500/15 dark:text-purple-300'}`}>{attendance.type === 'BAN_TRU' ? 'Bán trú' : 'Theo buổi'}</span><span className="text-xs font-semibold text-emerald-600">Thu: {formatMoney(rowTotals.revenue)}</span><span className="text-xs font-semibold text-red-600">Chi: {formatMoney(rowTotals.expense)}</span>{attendance.isCompleted && <span className="inline-flex items-center gap-1 text-xs font-bold text-emerald-600"><CheckCircle2 size={13} />Hoàn tất</span>}</div>
                           {editingIds.has(attendance._id) ? <Button type="button" size="sm" disabled={finishEditMutation.isPending || dayMutation.isPending} onClick={() => finishEditMutation.mutate(attendance._id)}><CheckCircle2 size={13} />Xong</Button> : <Button type="button" size="sm" variant="secondary" disabled={editModeMutation.isPending} onClick={() => editModeMutation.mutate({ id: attendance._id, completed: attendance.isCompleted })}><Pencil size={13} />Sửa</Button>}
                         </div>
-                        <div className="grid grid-cols-7 gap-1">{CALENDAR_WEEKDAYS.map((weekday, weekdayIndex) => <div key={weekday} className={`border-b border-r border-border px-1 py-1.5 text-center text-[13px] font-bold text-muted last:border-r-0 ${weekdayIndex >= 5 ? 'bg-slate-200/80 dark:bg-slate-700/70' : ''}`}>{weekday}</div>)}
+                        <div className="grid grid-cols-7 gap-1">{CALENDAR_WEEKDAYS.map((weekday, weekdayIndex) => <div key={weekday} className={`border-b border-r border-border px-1 py-1.5 text-center text-[13px] font-bold text-muted last:border-r-0 ${weekdayIndex >= 5 ? 'bg-slate-200/80 dark:bg-slate-700/70' : 'bg-amber-100/90 dark:bg-amber-500/20'}`}>{weekday}</div>)}
                           {calendarDays.map((day, index) => {
                             const isWeekend = index % 7 >= 5
                             if (!day) return <div key={`empty-${index}`} className={isWeekend ? 'min-h-20 rounded-md bg-slate-100 dark:bg-slate-800/70' : 'min-h-20'} />
@@ -409,17 +416,23 @@ export default function StudentHistoryPage() {
       </Card>
       <Modal open={Boolean(receiptGroup)} onClose={() => !copyingReceipt && setReceiptGroup(null)} title="Xuất phiếu" className="max-h-[92vh] max-w-4xl overflow-auto">
         {receiptData && <div className="grid gap-4">
+          <label className="grid gap-1.5 rounded-xl border border-border bg-surface-muted/40 p-3 text-sm font-semibold">Tài khoản nhận chuyển khoản
+            <select value={selectedBankId} onChange={(event) => setSelectedBankId(event.target.value)} className="h-11 rounded-xl border border-border bg-surface px-3 font-normal outline-none focus:border-primary">
+              {(accountBanksQuery.data || []).map((bank) => <option key={bank._id} value={bank._id}>{bank.bankName} · {bank.accountNumber} · {bank.accountHolderName}</option>)}
+            </select>
+            {accountBanksQuery.isError && <span className="text-xs font-normal text-red-600">Không thể tải danh sách tài khoản, đang dùng tài khoản mặc định.</span>}
+          </label>
           <div ref={receiptRef} className="mx-auto w-[700px] bg-white p-5 text-slate-900">
             <div className="border-b-2 border-emerald-500 pb-3 text-center"><h2 className="m-0 text-2xl font-bold">PHIẾU THÔNG TIN HỌC</h2></div>
             <div className="mt-3 grid grid-cols-[1fr_auto] gap-4 rounded-xl bg-slate-50 p-3"><div><strong className="block text-xl">{receiptData.child?.name || `Trẻ #${receiptGroup?.childId}`}</strong><span className="block text-sm text-slate-600">Ngày sinh: {formatBirthDate(receiptData.child?.birthDate)} · GV: {receiptData.child?.teacherName || 'Chưa cập nhật'}</span></div><div className="text-right"><strong className="block text-2xl text-emerald-600">{receiptData.days.length} buổi</strong>{receiptData.totalHours > 0 && <span className="text-sm text-slate-500">{receiptData.totalHours} giờ học</span>}</div></div>
             <div className={`mt-3 grid gap-2 ${receiptData.totalRefund > 0 ? 'grid-cols-2' : 'grid-cols-1'}`}><div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3"><span className="text-xs font-semibold text-emerald-700">Tổng học phí</span><strong className="block text-base text-emerald-700">{formatMoney(receiptData.totals.revenue)}</strong></div>{receiptData.totalRefund > 0 && <div className="rounded-lg border border-red-200 bg-red-50 p-3"><span className="text-xs font-semibold text-red-700">Hoàn tiền</span><strong className="block text-base text-red-700">{formatMoney(receiptData.totalRefund)}</strong></div>}</div>
             <h3 className="mb-1.5 mt-3 text-sm font-bold uppercase text-slate-700">Lịch học Tháng {selectedMonth}/{selectedYear}</h3>
-            <div className="grid grid-cols-7 border-l border-t border-slate-300">{CALENDAR_WEEKDAYS.map((weekday) => <div key={weekday} className="border-b border-r border-slate-300 bg-slate-100 px-1 py-2 text-center text-xs font-bold">{weekday}</div>)}{calendarDays.map((day, index) => {
+            <div className="grid grid-cols-7 border-l border-t border-slate-300">{CALENDAR_WEEKDAYS.map((weekday, weekdayIndex) => <div key={weekday} className={`border-b border-r border-slate-300 px-1 py-2 text-center text-xs font-bold ${weekdayIndex >= 5 ? 'bg-slate-200' : 'bg-amber-100'}`}>{weekday}</div>)}{calendarDays.map((day, index) => {
               if (!day) return <div key={`receipt-empty-${index}`} className="min-h-20 border-b border-r border-slate-300 bg-slate-50" />
               const items = receiptData.days.filter((item) => Number(item.date.slice(8, 10)) === day)
               return <div key={`receipt-${day}`} className={`min-h-20 border-b border-r border-slate-300 p-1.5 ${items.some((item) => !item.absent) ? 'bg-emerald-50' : items.some((item) => item.absent) ? 'bg-amber-50' : 'bg-white'}`}><strong className="block text-sm">{day}</strong>{items.map((item) => <div key={`${item.attendanceType}-${item.date}`} className={`mt-1 text-[11px] leading-snug ${item.absent ? 'text-amber-700' : 'text-emerald-700'}`}><strong>{item.absent ? 'Nghỉ' : item.attendanceType === 'BAN_TRU' ? 'Học' : `${item.lessonType || 'HỌC'} · ${item.spendTime}h`}</strong>{item.refund > 0 && <span className="block text-red-600">Hoàn {formatMoney(item.refund)}</span>}</div>)}</div>
             })}</div>
-            <div className="mt-3 rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm leading-relaxed text-blue-900"><strong className="block text-base">Thông tin chuyển khoản</strong><span className="mt-1 block">Ngân hàng: Vietcombank</span><span className="block">Số tài khoản: <strong>1057884906</strong></span><span className="block">Chủ tài khoản: <strong>CTY TNHH TV VA HO TRO GIAO DUC NANG MAI</strong></span><span className="block">Nội dung: <strong>Tên Bé</strong></span></div>
+            <div className="mt-3 rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm leading-relaxed text-blue-900"><strong className="block text-base">Thông tin chuyển khoản</strong><span className="mt-1 block">Ngân hàng: {selectedBank?.bankName || 'Vietcombank'}</span><span className="block">Số tài khoản: <strong>{selectedBank?.accountNumber || '1057884906'}</strong></span><span className="block">Chủ tài khoản: <strong>{selectedBank?.accountHolderName || 'CTY TNHH TV VA HO TRO GIAO DUC NANG MAI'}</strong></span><span className="block">Nội dung: <strong>Tên Bé</strong></span></div>
             <p className="mb-0 mt-3 text-center text-xs text-slate-400">Phiếu được tổng hợp từ hệ thống quản lý</p>
           </div>
           <div className="sticky bottom-0 flex justify-end gap-2 border-t border-border bg-surface pt-4"><Button type="button" variant="secondary" disabled={copyingReceipt} onClick={() => setReceiptGroup(null)}>Đóng</Button><Button type="button" disabled={copyingReceipt} onClick={copyReceiptImage}>{copyingReceipt ? <Loader2 size={16} className="spin" /> : <Copy size={16} />}Copy hình</Button></div>
