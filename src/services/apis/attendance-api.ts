@@ -18,6 +18,7 @@ const attendanceDaySchema = z.object({
 
 const attendanceChildSchema = z.object({
   _id: z.coerce.string(),
+  order: z.number().optional().default(0),
   name: z.string(),
   avatar: z.string().optional().default(''),
   birthDate: z.string().optional().nullable(),

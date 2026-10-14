@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { AlertCircle, Eye, Loader2, Pencil, RefreshCw, Search, Trash2, Users } from 'lucide-react'
+import { AlertCircle, Eye, Loader2, Pencil, Plus, RefreshCw, Search, Trash2, Users } from 'lucide-react'
 import { type FormEvent, useMemo, useState } from 'react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
@@ -7,14 +7,11 @@ import { Card, CardHeader } from '@/components/ui/card'
 import { Modal } from '@/components/ui/modal'
 import { PageHeader } from '@/components/ui/page-header'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-import { getMonthlyAttendances } from '@/services/apis/attendance-api'
-import { deleteTeacher, getSalaryMonth, getTeachers, type Teacher, updateTeacher } from '@/services/apis/teachers-api'
+import { VIETNAM_BANKS } from '@/constants/vietnam-banks'
+import { createTeacher, deleteTeacher, getTeachers, type Teacher, updateTeacher } from '@/services/apis/teachers-api'
 
 const inputClass = 'h-10 rounded-xl border border-border bg-app-background px-3 font-normal outline-none focus:border-primary'
 const formatMoney = (value: number) => `${Number(value || 0).toLocaleString('vi-VN')} đ`
-const MONTHS = Array.from({ length: 12 }, (_, index) => index + 1)
-const YEARS = Array.from({ length: new Date().getFullYear() - 2019 + 2 }, (_, index) => 2020 + index)
-const currentMonth = () => `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`
 
 function formatDate(value?: string) {
   if (!value) return '—'
@@ -23,7 +20,7 @@ function formatDate(value?: string) {
 }
 
 function Field({ label, children, wide }: { label: string; children: React.ReactNode; wide?: boolean }) {
-  return <label className={`grid gap-1.5 text-sm font-semibold ${wide ? 'sm:col-span-2' : ''}`}>{label}{children}</label>
+  return <label className={`grid min-w-0 gap-1.5 text-sm font-semibold ${wide ? 'sm:col-span-2' : ''}`}>{label}{children}</label>
 }
 
 function InfoItem({ label, value, wide }: { label: string; value?: React.ReactNode; wide?: boolean }) {
@@ -35,11 +32,10 @@ export default function TeachersPage() {
   const [search, setSearch] = useState('')
   const [detailTeacher, setDetailTeacher] = useState<Teacher | null>(null)
   const [editingTeacher, setEditingTeacher] = useState<Teacher | null>(null)
-  const [salaryMonth, setSalaryMonth] = useState(currentMonth)
-  const [salaryYear, salaryMonthNumber] = salaryMonth.split('-').map(Number)
+  const [creatingTeacher, setCreatingTeacher] = useState(false)
+  const [selectedBankCode, setSelectedBankCode] = useState('')
+  const selectedBank = VIETNAM_BANKS.find((bank) => bank.code === selectedBankCode)
   const teachersQuery = useQuery({ queryKey: ['teachers'], queryFn: getTeachers })
-  const salaryMonthQuery = useQuery({ queryKey: ['salary-month', salaryMonth], queryFn: () => getSalaryMonth(salaryMonth) })
-  const monthlyAttendanceQuery = useQuery({ queryKey: ['teacher-monthly-history', salaryMonth], queryFn: () => getMonthlyAttendances(salaryMonth, 'ALL') })
   const updateMutation = useMutation({
     mutationFn: ({ id, data }: { id: string; data: Partial<Teacher> }) => updateTeacher(id, data),
     onSuccess: async () => {
@@ -58,6 +54,16 @@ export default function TeachersPage() {
     },
     onError: (error) => toast.error(error instanceof Error ? error.message : 'Không thể xóa giáo viên'),
   })
+  const createMutation = useMutation({
+    mutationFn: createTeacher,
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['teachers'] })
+      setCreatingTeacher(false)
+      setSelectedBankCode('')
+      toast.success('Tạo giáo viên thành công')
+    },
+    onError: (error) => toast.error(error instanceof Error ? error.message : 'Không thể tạo giáo viên'),
+  })
 
   const filteredTeachers = useMemo(() => {
     const keyword = search.trim().toLocaleLowerCase('vi')
@@ -67,25 +73,6 @@ export default function TeachersPage() {
         .join(' ').toLocaleLowerCase('vi').includes(keyword),
     )
   }, [search, teachersQuery.data])
-
-  const monthlyTeachingByTeacher = useMemo(() => {
-    const result = new Map<string, { children: Map<string, { name: string; dates: number[] }>; totalHours: number }>()
-    for (const attendance of monthlyAttendanceQuery.data || []) {
-      if (typeof attendance.children === 'string') continue
-      for (const day of attendance.days) {
-        if (day.absent || !day.teacherId) continue
-        const teacher = result.get(day.teacherId) || { children: new Map<string, { name: string; dates: number[] }>(), totalHours: 0 }
-        const child = teacher.children.get(attendance.children._id) || { name: attendance.children.name, dates: [] }
-        const date = Number(day.date.slice(8, 10))
-        if (!child.dates.includes(date)) child.dates.push(date)
-        child.dates.sort((left, right) => left - right)
-        teacher.children.set(attendance.children._id, child)
-        teacher.totalHours += day.spendTime
-        result.set(day.teacherId, teacher)
-      }
-    }
-    return result
-  }, [monthlyAttendanceQuery.data])
 
   const handleEdit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -113,26 +100,34 @@ export default function TeachersPage() {
     })
   }
 
+  const handleCreate = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    const form = new FormData(event.currentTarget)
+    createMutation.mutate({
+      name: String(form.get('name') || '').trim(),
+      type: String(form.get('type')) as Teacher['type'],
+      account: String(form.get('account') || '').trim(),
+      password: String(form.get('password') || ''),
+      email: String(form.get('email') || '').trim(),
+      phone: String(form.get('phone') || '').trim(),
+      address: String(form.get('address') || '').trim(),
+      description: String(form.get('description') || '').trim(),
+      baseSalary: Number(form.get('baseSalary')) || 0,
+      insuranceSupport: Number(form.get('insuranceSupport')) || 0,
+      attendanceBonus: Number(form.get('attendanceBonus')) || 0,
+      otherSalary: Number(form.get('otherSalary')) || 0,
+      sessionsPerDay: Number(form.get('sessionsPerDay')) || 0,
+      isSalaryByMonth: form.get('isSalaryByMonth') === 'on',
+      accountBank: String(form.get('accountBank') || '').trim(),
+      nameBank: VIETNAM_BANKS.find((bank) => bank.code === String(form.get('bankCode') || ''))?.shortName || '',
+    })
+  }
+
   return (
     <div className="grid gap-6">
       <PageHeader eyebrow="Giáo Viên" title="Danh sách Giáo Viên" description="Theo dõi và quản lý hồ sơ, thông tin lương của giáo viên." />
       <Card>
-        <CardHeader title={`Lương cố định Tháng ${salaryMonthNumber}/${salaryYear}`} description={`${salaryMonthQuery.data?.salaries.length || 0} giáo viên hưởng lương theo tháng`} />
-        <div className="flex flex-wrap gap-3 border-b border-border p-4 sm:px-6">
-          <label className="grid gap-1.5 text-xs font-semibold text-muted">Tháng<select value={salaryMonthNumber} onChange={(event) => setSalaryMonth(`${salaryYear}-${String(event.target.value).padStart(2, '0')}`)} className={inputClass}>{MONTHS.map((month) => <option key={month} value={month}>Tháng {month}</option>)}</select></label>
-          <label className="grid gap-1.5 text-xs font-semibold text-muted">Năm<select value={salaryYear} onChange={(event) => setSalaryMonth(`${event.target.value}-${String(salaryMonthNumber).padStart(2, '0')}`)} className={inputClass}>{YEARS.map((year) => <option key={year} value={year}>Năm {year}</option>)}</select></label>
-          {salaryMonthQuery.data && <div className="ml-auto self-end rounded-xl bg-primary/10 px-4 py-2"><span className="block text-[11px] font-semibold uppercase text-muted">Tổng lương tháng</span><strong className="text-lg text-primary">{formatMoney(salaryMonthQuery.data.totalSalary)}</strong></div>}
-        </div>
-        {salaryMonthQuery.isLoading && <div className="flex min-h-32 items-center justify-center gap-2 text-sm text-muted"><Loader2 size={18} className="spin text-primary" />Đang tải lương tháng...</div>}
-        {salaryMonthQuery.isError && <div className="m-5 rounded-xl bg-red-50 p-4 text-sm text-red-700">Không thể tải danh sách lương tháng.</div>}
-        {salaryMonthQuery.data && salaryMonthQuery.data.salaries.length === 0 && <div className="grid min-h-32 place-items-center text-sm text-muted">Chưa có giáo viên hưởng lương theo tháng.</div>}
-        {salaryMonthQuery.data && salaryMonthQuery.data.salaries.length > 0 && <Table><TableHeader><TableRow><TableHead>Giáo viên</TableHead><TableHead>Trẻ và ngày dạy</TableHead><TableHead>Số giờ</TableHead><TableHead>Lương cơ bản</TableHead><TableHead>Hỗ trợ bảo hiểm</TableHead><TableHead>Chuyên cần</TableHead><TableHead>Lương khác</TableHead><TableHead>Tổng lương</TableHead></TableRow></TableHeader><TableBody>{salaryMonthQuery.data.salaries.map((salary) => {
-          const teaching = monthlyTeachingByTeacher.get(salary.teacherId)
-          return <TableRow key={salary.teacherId}><TableCell className="font-semibold">{salary.teacherName}</TableCell><TableCell>{teaching?.children.size ? <div className="grid min-w-52 gap-1">{[...teaching.children.values()].map((child) => <span key={child.name}><strong>{child.name}:</strong> {child.dates.join(', ')}/{salaryMonthNumber}</span>)}</div> : '—'}</TableCell><TableCell className="whitespace-nowrap">{teaching?.totalHours ? `${teaching.totalHours} giờ` : '—'}</TableCell><TableCell>{formatMoney(salary.baseSalary)}</TableCell><TableCell>{formatMoney(salary.insuranceSupport)}</TableCell><TableCell>{formatMoney(salary.attendanceBonus)}</TableCell><TableCell>{formatMoney(salary.otherSalary)}</TableCell><TableCell className="font-bold text-primary">{formatMoney(salary.totalSalary)}</TableCell></TableRow>
-        })}</TableBody></Table>}
-      </Card>
-      <Card>
-        <CardHeader title={`Danh sách Giáo Viên (${filteredTeachers.length})`} description="Tìm kiếm theo tên, tài khoản, email hoặc số điện thoại." action={<Button type="button" variant="secondary" size="compact" onClick={() => teachersQuery.refetch()} disabled={teachersQuery.isFetching}><RefreshCw size={15} className={teachersQuery.isFetching ? 'spin' : ''} />Làm mới</Button>} />
+        <CardHeader title={`Danh sách Giáo Viên (${filteredTeachers.length})`} description="Tìm kiếm theo tên, tài khoản, email hoặc số điện thoại." action={<div className="flex gap-2"><Button type="button" size="compact" onClick={() => setCreatingTeacher(true)}><Plus size={15} />Tạo mới</Button><Button type="button" variant="secondary" size="compact" onClick={() => teachersQuery.refetch()} disabled={teachersQuery.isFetching}><RefreshCw size={15} className={teachersQuery.isFetching ? 'spin' : ''} />Làm mới</Button></div>} />
         <div className="border-b border-border p-4 sm:px-6"><label className="relative block max-w-md"><span className="sr-only">Tìm kiếm giáo viên</span><Search size={17} className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-muted" /><input type="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Tìm kiếm giáo viên..." className="h-10 w-full rounded-xl border border-border bg-app-background pl-10 pr-4 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/15" /></label></div>
 
         {teachersQuery.isLoading && <div className="flex min-h-64 items-center justify-center gap-2 text-sm text-muted"><Loader2 size={20} className="spin text-primary" />Đang tải danh sách giáo viên...</div>}
@@ -152,6 +147,30 @@ export default function TeachersPage() {
           </TableRow>)}</TableBody>
         </Table>}
       </Card>
+
+      <Modal open={creatingTeacher} onClose={() => { if (!createMutation.isPending) { setCreatingTeacher(false); setSelectedBankCode('') } }} title="Tạo giáo viên mới" description="Nhập hồ sơ và thông tin lương" className="max-h-[90vh] max-w-3xl overflow-y-auto">
+        <form onSubmit={handleCreate} className="grid gap-5">
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Field label="Họ và tên"><input name="name" required className={inputClass} /></Field>
+            <Field label="Loại giáo viên"><select name="type" defaultValue="THEO_BUOI" className={inputClass}><option value="BAN_TRU">Bán trú</option><option value="THEO_BUOI">Theo buổi</option><option value="CA_NHAN">Cá nhân</option></select></Field>
+            <Field label="Tài khoản đăng nhập"><input name="account" required autoComplete="off" className={inputClass} /></Field>
+            <Field label="Mật khẩu"><input name="password" type="password" required minLength={6} autoComplete="new-password" className={inputClass} /></Field>
+            <Field label="Email"><input name="email" type="email" required className={inputClass} /></Field>
+            <Field label="Số điện thoại"><input name="phone" required className={inputClass} /></Field>
+            <Field label="Địa chỉ" wide><input name="address" required className={inputClass} /></Field>
+            <Field label="Lương cơ bản"><input name="baseSalary" type="number" min="0" step="1000" defaultValue="0" className={inputClass} /></Field>
+            <Field label="Hỗ trợ bảo hiểm"><input name="insuranceSupport" type="number" min="0" step="1000" defaultValue="0" className={inputClass} /></Field>
+            <Field label="Chuyên cần"><input name="attendanceBonus" type="number" min="0" step="1000" defaultValue="0" className={inputClass} /></Field>
+            <Field label="Lương khác"><input name="otherSalary" type="number" min="0" step="1000" defaultValue="0" className={inputClass} /></Field>
+            <Field label="Số buổi/ngày"><input name="sessionsPerDay" type="number" min="0" step="1" defaultValue="0" className={inputClass} /></Field>
+            <label className="flex items-center gap-3 rounded-xl border border-border p-3 text-sm font-semibold"><input name="isSalaryByMonth" type="checkbox" className="h-4 w-4 accent-primary" />Trả lương cố định theo tháng</label>
+            <Field label="Ngân hàng"><select name="bankCode" value={selectedBankCode} onChange={(event) => setSelectedBankCode(event.target.value)} className={`${inputClass} w-full min-w-0 max-w-full text-ellipsis`}><option value="">Chọn ngân hàng</option>{VIETNAM_BANKS.map((bank) => <option key={bank.code} value={bank.code}>{bank.shortName} · {bank.code} · {bank.name}</option>)}</select>{selectedBank && <span className="flex min-w-0 items-center gap-2 rounded-lg border border-border bg-white px-2 py-1.5 text-xs font-medium text-slate-700"><img src={selectedBank.logo} alt={`Logo ${selectedBank.shortName}`} className="h-7 w-16 shrink-0 object-contain" /><span className="min-w-0 truncate">{selectedBank.shortName} · {selectedBank.code}</span></span>}</Field>
+            <Field label="Số tài khoản"><input name="accountBank" className={inputClass} /></Field>
+            <Field label="Mô tả" wide><textarea name="description" rows={3} className="rounded-xl border border-border bg-app-background p-3 font-normal outline-none focus:border-primary" /></Field>
+          </div>
+          <div className="flex justify-end gap-2 border-t border-border pt-4"><Button type="button" variant="secondary" onClick={() => { setCreatingTeacher(false); setSelectedBankCode('') }} disabled={createMutation.isPending}>Hủy</Button><Button type="submit" disabled={createMutation.isPending}>{createMutation.isPending && <Loader2 size={16} className="spin" />}Tạo giáo viên</Button></div>
+        </form>
+      </Modal>
 
       <Modal open={Boolean(detailTeacher)} onClose={() => setDetailTeacher(null)} title={detailTeacher?.name || 'Thông tin giáo viên'} description="Hồ sơ và thông tin lương" className="max-h-[90vh] max-w-2xl overflow-y-auto">
         {detailTeacher && <dl className="m-0 grid gap-3 sm:grid-cols-2"><InfoItem label="Loại giáo viên" value={detailTeacher.type === 'BAN_TRU' ? 'Bán trú' : 'Theo buổi'} /><InfoItem label="Số buổi/ngày" value={detailTeacher.sessionsPerDay || '—'} /><InfoItem label="Lương cơ bản" value={formatMoney(detailTeacher.baseSalary)} /><InfoItem label="Hỗ trợ bảo hiểm" value={formatMoney(detailTeacher.insuranceSupport)} /><InfoItem label="Chuyên cần" value={formatMoney(detailTeacher.attendanceBonus)} /><InfoItem label="Lương khác" value={formatMoney(detailTeacher.otherSalary)} /><InfoItem label="Tài khoản" value={detailTeacher.account} /><InfoItem label="Email" value={detailTeacher.email} /><InfoItem label="Số điện thoại" value={detailTeacher.phone} /><InfoItem label="Tổng lương" value={formatMoney(detailTeacher.baseSalary + detailTeacher.insuranceSupport + detailTeacher.attendanceBonus + detailTeacher.otherSalary)} /><InfoItem label="Ngân hàng" value={detailTeacher.nameBank} /><InfoItem label="Số tài khoản" value={detailTeacher.accountBank} /><InfoItem label="Địa chỉ" value={detailTeacher.address} wide /><InfoItem label="Mô tả" value={detailTeacher.description} wide /></dl>}

@@ -24,11 +24,19 @@ const teacherSchema = z.object({
 
 export type Teacher = z.infer<typeof teacherSchema>
 export type UpdateTeacherInput = Partial<Omit<Teacher, '_id'>>
+export type CreateTeacherInput = Omit<Teacher, '_id' | 'active' | 'createdAt'> & { password: string }
 
 export async function getTeachers(): Promise<Teacher[]> {
   const response = await apiClient.get('/v1/teacher')
   const parsed = z.array(teacherSchema).safeParse(unwrapPayload<unknown>(response.data))
   if (!parsed.success) throw new ApiContractError('Dữ liệu danh sách giáo viên không đúng định dạng')
+  return parsed.data
+}
+
+export async function createTeacher(input: CreateTeacherInput): Promise<Teacher> {
+  const response = await apiClient.post('/v1/teacher', input)
+  const parsed = teacherSchema.safeParse(unwrapPayload<unknown>(response.data))
+  if (!parsed.success) throw new ApiContractError('Dữ liệu giáo viên mới không đúng định dạng')
   return parsed.data
 }
 
@@ -50,6 +58,11 @@ const monthlySalaryItemSchema = z.object({
   insuranceSupport: z.number().default(0),
   attendanceBonus: z.number().default(0),
   otherSalary: z.number().default(0),
+  absents: z.array(z.object({
+    date: z.string(),
+    isPaidLeave: z.boolean().optional().default(false),
+    subSalary: z.number().default(0),
+  })).default([]),
   totalSalary: z.number().default(0),
 })
 
@@ -65,5 +78,16 @@ export async function getSalaryMonth(month: string): Promise<SalaryMonth> {
   const response = await apiClient.get(`/v1/salary-month/${month}`)
   const parsed = salaryMonthSchema.safeParse(unwrapPayload<unknown>(response.data))
   if (!parsed.success) throw new ApiContractError('Dữ liệu lương tháng không đúng định dạng')
+  return parsed.data
+}
+
+export async function updateMonthlySalary(
+  month: string,
+  teacherId: string,
+  input: { baseSalary: number; insuranceSupport: number; attendanceBonus: number; otherSalary: number; absents: Array<{ date: string; isPaidLeave: boolean }> },
+): Promise<SalaryMonth> {
+  const response = await apiClient.put(`/v1/salary-month/${month}/${teacherId}`, input)
+  const parsed = salaryMonthSchema.safeParse(unwrapPayload<unknown>(response.data))
+  if (!parsed.success) throw new ApiContractError('Dữ liệu lương tháng sau cập nhật không đúng định dạng')
   return parsed.data
 }

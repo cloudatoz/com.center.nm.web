@@ -109,6 +109,7 @@ export default function StudentsPage() {
     if (!editingChild) return
     const form = new FormData(event.currentTarget)
     const data: Partial<Child> = {
+      order: Math.max(Number(form.get('order')) || 0, 0),
       name: String(form.get('name') || '').trim(),
       gender: String(form.get('gender') || ''),
       birthDate: String(form.get('birthDate') || '') || null,
@@ -143,7 +144,7 @@ export default function StudentsPage() {
             <TableHeader><TableRow><TableHead>Trẻ</TableHead><TableHead>Ngày sinh</TableHead><TableHead>Loại học</TableHead><TableHead>Học phí</TableHead><TableHead>Tiền ăn</TableHead><TableHead>Phí khác</TableHead><TableHead className="text-right">Thao tác</TableHead></TableRow></TableHeader>
             <TableBody>{filteredChildren.map((child) => (
               <TableRow key={child._id}>
-                <TableCell><div className="flex min-w-44 items-center gap-3"><img src={child.avatar || defaultAvatar(child.gender)} onError={(event) => { event.currentTarget.src = defaultAvatar(child.gender) }} alt={`Ảnh ${child.name}`} className="h-11 w-11 shrink-0 rounded-xl bg-surface-muted object-cover" /><div><strong className="block">{child.name}</strong><span className="text-xs text-muted">{child.gender === 'male' ? 'Nam' : child.gender === 'female' ? 'Nữ' : ''}</span>{child.teacherName && <span className="mt-0.5 block text-xs text-primary">GV: {child.teacherName}</span>}</div></div></TableCell>
+                <TableCell><div className="flex min-w-44 items-center gap-3"><img src={child.avatar || defaultAvatar(child.gender)} onError={(event) => { event.currentTarget.src = defaultAvatar(child.gender) }} alt={`Ảnh ${child.name}`} className="h-11 w-11 shrink-0 rounded-xl bg-surface-muted object-cover" /><div><strong className="block">{child.name}</strong><span className="inline-flex items-center gap-1 text-xs text-muted">Thứ tự <input type="number" min="0" step="1" defaultValue={child.order} aria-label={`Thứ tự của ${child.name}`} onBlur={(event) => { const order = Math.max(Number(event.target.value) || 0, 0); if (order !== child.order) updateMutation.mutate({ id: child._id, data: { order } }) }} className="h-6 w-14 rounded-md border border-border bg-surface px-1.5 text-center text-xs" /> · {child.gender === 'male' ? 'Nam' : child.gender === 'female' ? 'Nữ' : ''}</span>{child.teacherName && <span className="mt-0.5 block text-xs text-primary">GV: {child.teacherName}</span>}</div></div></TableCell>
                 <TableCell className="whitespace-nowrap text-muted">{formatDate(child.birthDate)}</TableCell>
                 <TableCell className="min-w-32">{formatTypes(child.type)}</TableCell>
                 <TableCell className="whitespace-nowrap font-medium">{formatMoney(child.tuitionFee)}</TableCell>

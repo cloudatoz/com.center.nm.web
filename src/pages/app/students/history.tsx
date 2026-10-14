@@ -156,6 +156,10 @@ export default function StudentHistoryPage() {
         .filter(Boolean).join(' ').toLocaleLowerCase('vi')
       return teacherNames.includes(teacherKeyword)
     }).sort((left, right) => {
+      const leftChild = typeof left.children === 'string' ? null : left.children
+      const rightChild = typeof right.children === 'string' ? null : right.children
+      const orderDifference = (leftChild?.order || 0) - (rightChild?.order || 0)
+      if (orderDifference !== 0) return orderDifference
       const leftId = typeof left.children === 'string' ? left.children : left.children._id
       const rightId = typeof right.children === 'string' ? right.children : right.children._id
       const childOrder = leftId.localeCompare(rightId, 'vi', { numeric: true })

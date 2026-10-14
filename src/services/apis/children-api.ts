@@ -3,6 +3,7 @@ import { ApiContractError, apiClient, unwrapPayload } from './api-client'
 
 const childSchema = z.object({
   _id: z.coerce.string(),
+  order: z.number().optional().default(0),
   name: z.string(),
   gender: z.string().optional().default(''),
   birthDate: z.string().optional().nullable(),
