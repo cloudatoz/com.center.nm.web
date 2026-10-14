@@ -13,6 +13,7 @@ const teacherSchema = z.object({
   type: z.enum(['BAN_TRU', 'THEO_BUOI', 'CA_NHAN']).optional().default('THEO_BUOI'),
   baseSalary: z.number().optional().default(0),
   insuranceSupport: z.number().optional().default(0),
+  isPayInsurance: z.boolean().optional().default(false),
   attendanceBonus: z.number().optional().default(0),
   sessionsPerDay: z.number().optional().default(0),
   isSalaryByMonth: z.boolean().optional().default(false),
@@ -56,6 +57,7 @@ const monthlySalaryItemSchema = z.object({
   teacherName: z.string(),
   baseSalary: z.number().default(0),
   insuranceSupport: z.number().default(0),
+  isPayInsurance: z.boolean().optional().default(false),
   attendanceBonus: z.number().default(0),
   otherSalary: z.number().default(0),
   absents: z.array(z.object({
