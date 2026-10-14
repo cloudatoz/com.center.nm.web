@@ -23,6 +23,8 @@ const attendanceChildSchema = z.object({
   birthDate: z.string().optional().nullable(),
   gender: z.string().optional().default(''),
   type: z.union([z.array(z.string()), z.string()]).optional().default([]),
+  isInvoice: z.boolean().optional().default(false),
+  invoiceAmount: z.number().optional().default(3240000),
   salaryTeacher: z.number().optional().default(0),
   tuitionFee: z.number().optional().default(0),
   salaryOneHourForCenter: z.number().optional().default(0),

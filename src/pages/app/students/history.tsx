@@ -8,7 +8,7 @@ import { Card, CardHeader } from '@/components/ui/card'
 import { Modal } from '@/components/ui/modal'
 import { PageHeader } from '@/components/ui/page-header'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-import { getAccountBanks } from '@/services/apis/account-bank-api'
+import { getAccountBanks, getVietQrImage } from '@/services/apis/account-bank-api'
 import { createAttendance, deleteAttendanceDay, type AttendanceType, getMonthlyAttendances, type MonthlyAttendance, setAttendanceCompleted, updateAttendanceDay } from '@/services/apis/attendance-api'
 import { getTeachers } from '@/services/apis/teachers-api'
 
@@ -21,6 +21,7 @@ const YEARS = Array.from(
 )
 const WEEKDAY_LABELS = ['CN', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7']
 const CALENDAR_WEEKDAYS = ['Thứ 2', 'Thứ 3', 'Thứ 4', 'Thứ 5', 'Thứ 6', 'Thứ 7', 'Chủ nhật']
+const CASH_PAYMENT = 'CASH'
 
 function currentMonth() {
   const now = new Date()
@@ -92,10 +93,7 @@ export default function StudentHistoryPage() {
   })
   const teachersQuery = useQuery({ queryKey: ['teachers'], queryFn: getTeachers })
   const accountBanksQuery = useQuery({ queryKey: ['account-banks'], queryFn: getAccountBanks })
-  useEffect(() => {
-    if (!selectedBankId && accountBanksQuery.data?.length) setSelectedBankId(accountBanksQuery.data[0]._id)
-  }, [accountBanksQuery.data, selectedBankId])
-  const selectedBank = accountBanksQuery.data?.find((bank) => bank._id === selectedBankId) || accountBanksQuery.data?.[0]
+  const companyBank = accountBanksQuery.data?.find((bank) => bank.accountNumber === '1057884906')
   const refreshHistory = () => queryClient.invalidateQueries({ queryKey: ['student-history', month, type] })
   const editModeMutation = useMutation({
     mutationFn: async ({ id, completed }: { id: string; completed: boolean }) => {
@@ -198,6 +196,37 @@ export default function StudentHistoryPage() {
       totalRefund: days.reduce((sum, day) => sum + day.refund, 0),
     }
   }, [receiptGroup])
+  const remainingBankOptions = (accountBanksQuery.data || []).filter(
+    (bank) => bank.accountNumber !== (companyBank?.accountNumber || '1057884906'),
+  )
+  const isCashPayment = selectedBankId === CASH_PAYMENT
+  const remainingBank = remainingBankOptions.find((bank) => bank._id === selectedBankId)
+  useEffect(() => {
+    if (!receiptGroup) return
+    const child = typeof receiptGroup.rows[0]?.children === 'string' ? null : receiptGroup.rows[0]?.children
+    if (child?.isInvoice) {
+      setSelectedBankId(CASH_PAYMENT)
+      return
+    }
+    const defaultBank = accountBanksQuery.data?.find(
+      (bank) => bank.accountNumber !== (companyBank?.accountNumber || '1057884906'),
+    )
+    setSelectedBankId(defaultBank?._id || CASH_PAYMENT)
+  }, [accountBanksQuery.data, companyBank?.accountNumber, receiptGroup])
+  const childName = receiptData?.child?.name || ''
+  const invoiceAmount = receiptData?.child?.invoiceAmount || 3240000
+  const remainingAmount = Math.max((receiptData?.totals.revenue || 0) - (receiptData?.child?.isInvoice ? invoiceAmount : 0), 0)
+  const companyQrQuery = useQuery({
+    queryKey: ['vietqr', 'company', companyBank?.accountNumber, companyBank?.bankName, invoiceAmount, childName],
+    queryFn: () => getVietQrImage({ accountNumber: companyBank?.accountNumber || '1057884906', bankName: companyBank?.bankName || 'Vietcombank', amount: invoiceAmount, description: childName }),
+    enabled: Boolean(receiptData?.child?.isInvoice && childName),
+  })
+  const selectedBankQrQuery = useQuery({
+    queryKey: ['vietqr', 'selected', remainingBank?.accountNumber, remainingBank?.bankName, remainingAmount, childName],
+    queryFn: () => getVietQrImage({ accountNumber: remainingBank!.accountNumber, bankName: remainingBank!.bankName, amount: remainingAmount, description: childName }),
+    enabled: Boolean(receiptData && childName && remainingBank),
+  })
+  const qrImagesReady = (isCashPayment || selectedBankQrQuery.isSuccess) && (!receiptData?.child?.isInvoice || companyQrQuery.isSuccess)
 
   const openDayEditor = (attendance: MonthlyAttendance, date: string, item: MonthlyAttendance['days'][number], defaultTeacherId?: string | null) => {
     const value = String(item.spendTime)
@@ -416,10 +445,12 @@ export default function StudentHistoryPage() {
       </Card>
       <Modal open={Boolean(receiptGroup)} onClose={() => !copyingReceipt && setReceiptGroup(null)} title="Xuất phiếu" className="max-h-[92vh] max-w-4xl overflow-auto">
         {receiptData && <div className="grid gap-4">
-          <label className="grid gap-1.5 rounded-xl border border-border bg-surface-muted/40 p-3 text-sm font-semibold">Tài khoản nhận chuyển khoản
-            <select value={selectedBankId} onChange={(event) => setSelectedBankId(event.target.value)} className="h-11 rounded-xl border border-border bg-surface px-3 font-normal outline-none focus:border-primary">
-              {(accountBanksQuery.data || []).map((bank) => <option key={bank._id} value={bank._id}>{bank.bankName} · {bank.accountNumber} · {bank.accountHolderName}</option>)}
+          <label className="grid gap-2 rounded-2xl border-2 border-blue-400 bg-blue-50 p-4 text-sm font-bold text-blue-900 shadow-lg shadow-blue-500/15 dark:border-blue-500 dark:bg-blue-500/15 dark:text-blue-100">Chọn hình thức thanh toán phần tiền còn lại
+            <select value={selectedBankId} onChange={(event) => setSelectedBankId(event.target.value)} className="h-12 rounded-xl border-2 border-blue-300 bg-white px-4 text-base font-semibold text-slate-900 shadow-sm outline-none focus:border-blue-600 focus:ring-4 focus:ring-blue-500/15">
+              <option value={CASH_PAYMENT}>Thanh toán tiền mặt</option>
+              {remainingBankOptions.map((bank) => <option key={bank._id} value={bank._id}>{bank.bankName} · {bank.accountNumber} · {bank.accountHolderName}</option>)}
             </select>
+            <span className="text-xs font-normal text-blue-700 dark:text-blue-200">Hình thức đang chọn sẽ được in trên phiếu và hình copy.</span>
             {accountBanksQuery.isError && <span className="text-xs font-normal text-red-600">Không thể tải danh sách tài khoản, đang dùng tài khoản mặc định.</span>}
           </label>
           <div ref={receiptRef} className="mx-auto w-[700px] bg-white p-5 text-slate-900">
@@ -432,10 +463,11 @@ export default function StudentHistoryPage() {
               const items = receiptData.days.filter((item) => Number(item.date.slice(8, 10)) === day)
               return <div key={`receipt-${day}`} className={`min-h-20 border-b border-r border-slate-300 p-1.5 ${items.some((item) => !item.absent) ? 'bg-emerald-50' : items.some((item) => item.absent) ? 'bg-amber-50' : 'bg-white'}`}><strong className="block text-sm">{day}</strong>{items.map((item) => <div key={`${item.attendanceType}-${item.date}`} className={`mt-1 text-[11px] leading-snug ${item.absent ? 'text-amber-700' : 'text-emerald-700'}`}><strong>{item.absent ? 'Nghỉ' : item.attendanceType === 'BAN_TRU' ? 'Học' : `${item.lessonType || 'HỌC'} · ${item.spendTime}h`}</strong>{item.refund > 0 && <span className="block text-red-600">Hoàn {formatMoney(item.refund)}</span>}</div>)}</div>
             })}</div>
-            <div className="mt-3 rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm leading-relaxed text-blue-900"><strong className="block text-base">Thông tin chuyển khoản</strong><span className="mt-1 block">Ngân hàng: {selectedBank?.bankName || 'Vietcombank'}</span><span className="block">Số tài khoản: <strong>{selectedBank?.accountNumber || '1057884906'}</strong></span><span className="block">Chủ tài khoản: <strong>{selectedBank?.accountHolderName || 'CTY TNHH TV VA HO TRO GIAO DUC NANG MAI'}</strong></span><span className="block">Nội dung: <strong>Tên Bé</strong></span></div>
+            {receiptData.child?.isInvoice && <div className="mt-3 grid grid-cols-[1fr_auto] items-center gap-3 rounded-lg border-2 border-red-200 bg-red-50 p-3 text-sm leading-relaxed text-red-900"><div><strong className="block text-base">Phần xuất hóa đơn</strong><span className="block">Chuyển vào tài khoản công ty: <strong className="text-base text-red-700">{formatMoney(invoiceAmount)}</strong></span><span className="mt-1 block">Ngân hàng: <strong>{companyBank?.bankName || 'Vietcombank'}</strong></span><span className="block">Số tài khoản: <strong>{companyBank?.accountNumber || '1057884906'}</strong></span><span className="block">Chủ tài khoản: <strong>{companyBank?.accountHolderName || 'CTY TNHH TV VA HO TRO GIAO DUC NANG MAI'}</strong></span><span className="block">Nội dung: <strong>{childName}</strong></span></div>{companyQrQuery.data ? <img src={companyQrQuery.data} alt={`QR chuyển khoản hóa đơn cho ${childName}`} className="h-40 w-40 rounded-lg bg-white object-contain" /> : <div className="grid h-40 w-40 place-items-center rounded-lg bg-white text-xs text-slate-500">Đang tải QR...</div>}</div>}
+            <div className={`mt-3 grid items-center gap-3 rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm leading-relaxed text-blue-900 ${isCashPayment ? 'grid-cols-1' : 'grid-cols-[1fr_auto]'}`}><div><strong className="block text-base">{receiptData.child?.isInvoice ? 'Phần tiền còn lại' : 'Thông tin thanh toán'}</strong>{receiptData.child?.isInvoice && <span className="block">Số tiền còn lại: <strong className="text-base text-blue-700">{formatMoney(remainingAmount)}</strong></span>}{isCashPayment ? <span className="mt-1 block font-semibold">Phụ huynh thanh toán tiền mặt{!receiptData.child?.isInvoice && <>: <strong className="text-base text-red-600">{formatMoney(remainingAmount)}</strong></>} ạ</span> : remainingBank ? <><span className="mt-1 block">Ngân hàng: {remainingBank.bankName}</span><span className="block">Số tài khoản: <strong>{remainingBank.accountNumber}</strong></span><span className="block">Chủ tài khoản: <strong>{remainingBank.accountHolderName}</strong></span><span className="block">Nội dung: <strong>{childName}</strong></span></> : <span className="mt-1 block font-semibold text-red-600">Vui lòng chọn hình thức thanh toán.</span>}</div>{!isCashPayment && (selectedBankQrQuery.data ? <img src={selectedBankQrQuery.data} alt={`QR chuyển khoản cho ${childName}`} className="h-40 w-40 rounded-lg bg-white object-contain" /> : <div className="grid h-40 w-40 place-items-center rounded-lg bg-white text-xs text-slate-500">{remainingBank ? 'Đang tải QR...' : 'Chưa chọn tài khoản'}</div>)}</div>
             <p className="mb-0 mt-3 text-center text-xs text-slate-400">Phiếu được tổng hợp từ hệ thống quản lý</p>
           </div>
-          <div className="sticky bottom-0 flex justify-end gap-2 border-t border-border bg-surface pt-4"><Button type="button" variant="secondary" disabled={copyingReceipt} onClick={() => setReceiptGroup(null)}>Đóng</Button><Button type="button" disabled={copyingReceipt} onClick={copyReceiptImage}>{copyingReceipt ? <Loader2 size={16} className="spin" /> : <Copy size={16} />}Copy hình</Button></div>
+          <div className="sticky bottom-0 flex justify-end gap-2 border-t border-border bg-surface pt-4"><Button type="button" variant="secondary" disabled={copyingReceipt} onClick={() => setReceiptGroup(null)}>Đóng</Button><Button type="button" disabled={copyingReceipt || !qrImagesReady} onClick={copyReceiptImage}>{copyingReceipt ? <Loader2 size={16} className="spin" /> : <Copy size={16} />}{qrImagesReady ? 'Copy hình' : 'Đang tải QR...'}</Button></div>
         </div>}
       </Modal>
       <Modal

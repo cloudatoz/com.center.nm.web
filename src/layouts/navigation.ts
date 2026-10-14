@@ -46,6 +46,12 @@ export const ADMIN_NAV_ITEMS: NavItem[] = [
         to: '/students/history',
         icon: History,
       },
+      {
+        id: 'students-receipts',
+        label: 'Phiếu thu',
+        to: '/students/receipts',
+        icon: ReceiptText,
+      },
     ],
   },
   {
