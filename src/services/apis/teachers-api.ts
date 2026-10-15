@@ -10,7 +10,7 @@ const teacherSchema = z.object({
   address: z.string(),
   description: z.string().optional().default(''),
   otherSalary: z.number().optional().default(0),
-  type: z.enum(['BAN_TRU', 'THEO_BUOI', 'CA_NHAN']).optional().default('THEO_BUOI'),
+  type: z.preprocess((value) => value === 'BAN_TRU' ? 'CA_NGAY' : value, z.enum(['CA_NGAY', 'THEO_BUOI', 'CA_NHAN'])).optional().default('THEO_BUOI'),
   baseSalary: z.number().optional().default(0),
   insuranceSupport: z.number().optional().default(0),
   isPayInsurance: z.boolean().optional().default(false),

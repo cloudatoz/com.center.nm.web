@@ -13,7 +13,7 @@ import { getTeachers } from '@/services/apis/teachers-api'
 import { AttendanceModal } from './attendance-modal'
 
 const TYPE_LABELS: Record<string, string> = {
-  BAN_TRU: 'Bán trú', CA_NHAN: 'Cá nhân', TAI_NHA: 'Tại nhà', TIEU_HOC: 'Tiểu học', TRE_MAM_NON: 'Trẻ mầm non',
+  CA_NGAY: 'Cả ngày', CA_NHAN: 'Cá nhân', TAI_NHA: 'Tại nhà', TIEU_HOC: 'Tiểu học', TRE_MAM_NON: 'Trẻ mầm non',
 }
 
 const FEE_FIELDS = [
@@ -45,8 +45,8 @@ function formatTypes(value: string | string[]) {
 
 function supportsAttendanceType(child: Child, attendanceType: AttendanceType) {
   const types = Array.isArray(child.type) ? child.type : [child.type]
-  if (attendanceType === 'BAN_TRU') return types.includes('BAN_TRU')
-  return types.length === 0 || types.some((type) => type !== 'BAN_TRU')
+  if (attendanceType === 'CA_NGAY') return types.includes('CA_NGAY')
+  return types.length === 0 || types.some((type) => type !== 'CA_NGAY')
 }
 
 function InfoItem({ label, value }: { label: string; value: React.ReactNode }) {
@@ -150,7 +150,7 @@ export default function StudentsPage() {
                 <TableCell className="whitespace-nowrap font-medium">{formatMoney(child.tuitionFee)}</TableCell>
                 <TableCell className="whitespace-nowrap">{formatMoney(child.mealFee)}</TableCell>
                 <TableCell className="min-w-36 text-xs text-muted"><span className="block">CSVC: {formatMoney(child.csvcFee)}</span><span className="mt-1 block">Vẽ: {formatMoney(child.drawingFee)}</span><span className="mt-1 block">Ngoại ngữ: {formatMoney(child.languageFee)}</span><span className="mt-1 block">Vận động: {formatMoney(child.movementFee)}</span></TableCell>
-                <TableCell><div className="ml-auto grid min-w-56 gap-2">{supportsAttendanceType(child, 'THEO_BUOI') && <Button type="button" variant="secondary" size="sm" className={isAttendanceCompleted(child, 'THEO_BUOI') ? 'border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 dark:border-emerald-500/40 dark:bg-emerald-500/15 dark:text-emerald-300' : undefined} onClick={() => { setAttendanceType('THEO_BUOI'); setAttendanceChild(child) }}>{isAttendanceCompleted(child, 'THEO_BUOI') ? <CheckCircle2 size={14} /> : <CalendarCheck size={14} />}{isAttendanceCompleted(child, 'THEO_BUOI') ? 'Đã điểm danh theo buổi' : 'Điểm danh theo buổi'} {CURRENT_MONTH_SHORT}</Button>}{supportsAttendanceType(child, 'BAN_TRU') && <Button type="button" variant="secondary" size="sm" className={isAttendanceCompleted(child, 'BAN_TRU') ? 'border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 dark:border-emerald-500/40 dark:bg-emerald-500/15 dark:text-emerald-300' : undefined} onClick={() => { setAttendanceType('BAN_TRU'); setAttendanceChild(child) }}>{isAttendanceCompleted(child, 'BAN_TRU') ? <CheckCircle2 size={14} /> : <CalendarCheck size={14} />}{isAttendanceCompleted(child, 'BAN_TRU') ? 'Đã điểm danh bán trú' : 'Điểm danh bán trú'} {CURRENT_MONTH_SHORT}</Button>}<Button type="button" variant="secondary" size="sm" onClick={() => setDetailChild(child)}><Eye size={14} />Thông tin</Button><Button type="button" size="sm" onClick={() => setEditingChild(child)}><Pencil size={14} />Chỉnh sửa</Button></div></TableCell>
+                <TableCell><div className="ml-auto grid min-w-56 gap-2">{supportsAttendanceType(child, 'THEO_BUOI') && <Button type="button" variant="secondary" size="sm" className={isAttendanceCompleted(child, 'THEO_BUOI') ? 'border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 dark:border-emerald-500/40 dark:bg-emerald-500/15 dark:text-emerald-300' : undefined} onClick={() => { setAttendanceType('THEO_BUOI'); setAttendanceChild(child) }}>{isAttendanceCompleted(child, 'THEO_BUOI') ? <CheckCircle2 size={14} /> : <CalendarCheck size={14} />}{isAttendanceCompleted(child, 'THEO_BUOI') ? 'Đã điểm danh theo buổi' : 'Điểm danh theo buổi'} {CURRENT_MONTH_SHORT}</Button>}{supportsAttendanceType(child, 'CA_NGAY') && <Button type="button" variant="secondary" size="sm" className={isAttendanceCompleted(child, 'CA_NGAY') ? 'border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 dark:border-emerald-500/40 dark:bg-emerald-500/15 dark:text-emerald-300' : undefined} onClick={() => { setAttendanceType('CA_NGAY'); setAttendanceChild(child) }}>{isAttendanceCompleted(child, 'CA_NGAY') ? <CheckCircle2 size={14} /> : <CalendarCheck size={14} />}{isAttendanceCompleted(child, 'CA_NGAY') ? 'Đã điểm danh cả ngày' : 'Điểm danh cả ngày'} {CURRENT_MONTH_SHORT}</Button>}<Button type="button" variant="secondary" size="sm" onClick={() => setDetailChild(child)}><Eye size={14} />Thông tin</Button><Button type="button" size="sm" onClick={() => setEditingChild(child)}><Pencil size={14} />Chỉnh sửa</Button></div></TableCell>
               </TableRow>
             ))}</TableBody>
           </Table>

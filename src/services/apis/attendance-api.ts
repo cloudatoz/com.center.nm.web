@@ -42,7 +42,7 @@ const monthlyAttendanceSchema = z.object({
   _id: z.string(),
   children: z.union([attendanceChildSchema, z.coerce.string()]),
   month: z.string(),
-  type: z.enum(['THEO_BUOI', 'BAN_TRU']),
+  type: z.preprocess((value) => value === 'BAN_TRU' ? 'CA_NGAY' : value, z.enum(['THEO_BUOI', 'CA_NGAY'])),
   days: z.array(attendanceDaySchema).default([]),
   isCompleted: z.boolean().default(false),
 })
@@ -55,7 +55,7 @@ function parseMonthlyAttendance(body: unknown): MonthlyAttendance {
   return parsed.data
 }
 
-export type AttendanceType = 'THEO_BUOI' | 'BAN_TRU'
+export type AttendanceType = 'THEO_BUOI' | 'CA_NGAY'
 
 export async function getChildMonthlyAttendance(childId: string, month: string, type: AttendanceType) {
   const response = await apiClient.get(`/v1/attendance/children/${childId}`, {

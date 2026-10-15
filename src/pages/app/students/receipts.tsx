@@ -32,7 +32,7 @@ const formatBirthDate = (value?: string | null) => value
 
 function attendanceAmount(attendance: MonthlyAttendance) {
   const child = typeof attendance.children === 'string' ? null : attendance.children
-  if (attendance.type === 'BAN_TRU') {
+  if (attendance.type === 'CA_NGAY') {
     return (child?.tuitionFee || 0) + (child?.mealFee || 0) + (child?.csvcFee || 0) +
       (child?.drawingFee || 0) + (child?.languageFee || 0) + (child?.movementFee || 0) -
       attendance.days.reduce((total, day) => total + day.refund, 0)
@@ -75,7 +75,7 @@ export default function StudentReceiptsPage() {
         lessonCount: 0,
       }
       current.amount += Math.max(attendanceAmount(attendance), 0)
-      current.lessonTypes.add(attendance.type === 'BAN_TRU' ? 'Bán trú' : 'Theo buổi')
+      current.lessonTypes.add(attendance.type === 'CA_NGAY' ? 'Cả ngày' : 'Theo buổi')
       if (child.teacherName) current.teachers.add(child.teacherName)
       for (const day of attendance.days) {
         if (!day.absent) current.lessonCount += 1
