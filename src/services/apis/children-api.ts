@@ -30,6 +30,7 @@ const childSchema = z.object({
 })
 
 export type Child = z.infer<typeof childSchema>
+export type CreateChildInput = Partial<Omit<Child, '_id'>> & Pick<Child, 'name' | 'gender' | 'avatar' | 'type'>
 
 export async function getChildren(): Promise<Child[]> {
   const response = await apiClient.get('/v1/children')
@@ -44,6 +45,14 @@ export async function getChildren(): Promise<Child[]> {
 }
 
 export type UpdateChildInput = Partial<Omit<Child, '_id'>>
+
+export async function createChild(input: CreateChildInput): Promise<Child> {
+  const response = await apiClient.post('/v1/children', input)
+  const payload = unwrapPayload<unknown>(response.data)
+  const parsed = childSchema.safeParse(payload)
+  if (!parsed.success) throw new ApiContractError('Dữ liệu trẻ sau khi tạo không đúng định dạng')
+  return parsed.data
+}
 
 export async function updateChild(id: string, input: UpdateChildInput): Promise<Child> {
   const response = await apiClient.put(`/v1/children/${id}`, input)

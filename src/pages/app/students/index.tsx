@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { AlertCircle, CalendarCheck, CheckCircle2, Eye, Loader2, Pencil, RefreshCw, Search, Users } from 'lucide-react'
+import { AlertCircle, CalendarCheck, CheckCircle2, Eye, Loader2, Pencil, Plus, RefreshCw, Search, Users } from 'lucide-react'
 import { type FormEvent, useMemo, useState } from 'react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
@@ -7,7 +7,7 @@ import { Card, CardHeader } from '@/components/ui/card'
 import { Modal } from '@/components/ui/modal'
 import { PageHeader } from '@/components/ui/page-header'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-import { type Child, getChildren, updateChild } from '@/services/apis/children-api'
+import { type Child, type CreateChildInput, createChild, getChildren, updateChild } from '@/services/apis/children-api'
 import { type AttendanceType, getMonthlyAttendances } from '@/services/apis/attendance-api'
 import { getTeachers } from '@/services/apis/teachers-api'
 import { AttendanceModal } from './attendance-modal'
@@ -78,6 +78,7 @@ const CURRENT_MONTH = `${new Date().getFullYear()}-${String(new Date().getMonth(
 export default function StudentsPage() {
   const queryClient = useQueryClient()
   const [search, setSearch] = useState('')
+  const [isCreating, setIsCreating] = useState(false)
   const [detailChild, setDetailChild] = useState<Child | null>(null)
   const [editingChild, setEditingChild] = useState<Child | null>(null)
   const [attendanceChild, setAttendanceChild] = useState<Child | null>(null)
@@ -92,6 +93,18 @@ export default function StudentsPage() {
     () => new Set((attendanceStatusQuery.data || []).filter((item) => item.isCompleted).map((item) => item._id)),
     [attendanceStatusQuery.data],
   )
+  const createMutation = useMutation({
+    mutationFn: createChild,
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['children'] }),
+        queryClient.invalidateQueries({ queryKey: ['dashboard-overview'] }),
+      ])
+      setIsCreating(false)
+      toast.success('Tạo học sinh thành công')
+    },
+    onError: (error) => toast.error(error instanceof Error ? error.message : 'Không thể tạo học sinh'),
+  })
   const updateMutation = useMutation({
     mutationFn: ({ id, data }: { id: string; data: Partial<Child> }) => updateChild(id, data),
     onSuccess: async () => {
@@ -112,6 +125,33 @@ export default function StudentsPage() {
 
   const isAttendanceCompleted = (child: Child, type: AttendanceType) =>
     completedAttendanceIds.has(`${CURRENT_MONTH}_${child._id}_${type}`)
+
+  const handleCreate = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    const form = new FormData(event.currentTarget)
+    const types = form.getAll('type').map(String)
+    if (types.length === 0) return toast.error('Vui lòng chọn ít nhất một loại học')
+    const gender = String(form.get('gender') || 'male')
+    const data: CreateChildInput = {
+      order: Math.max(Number(form.get('order')) || 0, 0),
+      name: String(form.get('name') || '').trim(),
+      gender,
+      avatar: defaultAvatar(gender),
+      birthDate: String(form.get('birthDate') || '') || null,
+      fatherName: String(form.get('fatherName') || '').trim(),
+      motherName: String(form.get('motherName') || '').trim(),
+      phone: String(form.get('phone') || '').trim(),
+      email: String(form.get('email') || '').trim(),
+      address: String(form.get('address') || '').trim(),
+      teacherId: String(form.get('teacherId') || '') || null,
+      type: types,
+      isInvoice: form.get('isInvoice') === 'on',
+    }
+    for (const [field] of FEE_FIELDS) data[field] = Number(form.get(field)) || 0
+    data.salaryTeacher = Number(form.get('salaryTeacher')) || 0
+    data.salaryOneHourForCenter = Number(form.get('salaryOneHourForCenter')) || 0
+    createMutation.mutate(data)
+  }
 
   const handleEdit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -136,11 +176,7 @@ export default function StudentsPage() {
     <div className="grid gap-6">
       <PageHeader eyebrow="Học Sinh" title="Danh sách Trẻ" description="Theo dõi và quản lý thông tin, học phí của trẻ tại trung tâm." />
       <Card>
-        <CardHeader title={`Danh sách Trẻ (${filteredChildren.length})`} description="Tìm kiếm theo tên trẻ, số điện thoại hoặc email." action={
-          <Button type="button" variant="secondary" size="compact" onClick={() => childrenQuery.refetch()} disabled={childrenQuery.isFetching}>
-            <RefreshCw size={15} className={childrenQuery.isFetching ? 'spin' : ''} />Làm mới
-          </Button>
-        } />
+        <CardHeader title={`Danh sách Trẻ (${filteredChildren.length})`} description="Tìm kiếm theo tên trẻ, số điện thoại hoặc email." action={<div className="flex flex-wrap gap-2"><Button type="button" size="compact" onClick={() => setIsCreating(true)}><Plus size={15} />Tạo học sinh</Button><Button type="button" variant="secondary" size="compact" onClick={() => childrenQuery.refetch()} disabled={childrenQuery.isFetching}><RefreshCw size={15} className={childrenQuery.isFetching ? 'spin' : ''} />Làm mới</Button></div>} />
         <div className="border-b border-border p-4 sm:px-6">
           <label className="relative block max-w-md"><span className="sr-only">Tìm kiếm trẻ</span><Search size={17} className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-muted" /><input type="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Tìm kiếm trẻ..." className="h-10 w-full rounded-xl border border-border bg-app-background pl-10 pr-4 text-sm text-text-main outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/15" /></label>
         </div>
@@ -167,6 +203,27 @@ export default function StudentsPage() {
         )}
       </Card>
       <AttendanceModal child={attendanceChild} initialType={attendanceType} onClose={() => setAttendanceChild(null)} />
+
+      <Modal open={isCreating} onClose={() => !createMutation.isPending && setIsCreating(false)} title="Tạo học sinh" description="Thêm thông tin học sinh mới vào trung tâm." className="max-h-[90vh] max-w-3xl overflow-y-auto">
+        <form onSubmit={handleCreate} className="grid gap-5">
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Field label="Họ và tên"><input name="name" required autoFocus className={inputClass} /></Field>
+            <Field label="Giới tính"><select name="gender" defaultValue="male" className={inputClass}><option value="male">Nam</option><option value="female">Nữ</option></select></Field>
+            <Field label="Ngày sinh"><input name="birthDate" type="date" className={inputClass} /></Field>
+            <Field label="Thứ tự"><input name="order" type="number" min="0" step="1" defaultValue="0" className={inputClass} /></Field>
+            <Field label="Tên bố"><input name="fatherName" className={inputClass} /></Field>
+            <Field label="Tên mẹ"><input name="motherName" className={inputClass} /></Field>
+            <Field label="Số điện thoại"><input name="phone" type="tel" className={inputClass} /></Field>
+            <Field label="Email"><input name="email" type="email" className={inputClass} /></Field>
+            <Field label="Giáo viên mặc định"><select name="teacherId" defaultValue="" className={inputClass}><option value="">Chưa chọn giáo viên</option>{(teachersQuery.data || []).filter((teacher) => teacher.active).map((teacher) => <option key={teacher._id} value={teacher._id}>{teacher.name}</option>)}</select></Field>
+            <Field label="Địa chỉ"><input name="address" className={inputClass} /></Field>
+            <fieldset className="grid gap-2 sm:col-span-2"><legend className="mb-1 text-sm font-semibold">Loại học</legend><div className="flex flex-wrap gap-2">{CHILD_TYPES.map(([value, label]) => <label key={value} className="flex items-center gap-2 rounded-xl border border-border bg-app-background px-3 py-2 text-sm font-medium"><input name="type" type="checkbox" value={value} defaultChecked={value === 'CA_NGAY'} />{label}</label>)}</div></fieldset>
+            <label className="flex items-center gap-2 text-sm font-semibold sm:col-span-2"><input name="isInvoice" type="checkbox" />Xuất hóa đơn</label>
+          </div>
+          <div><h4 className="mb-3 mt-0 text-sm font-bold">Các khoản phí</h4><div className="grid gap-4 sm:grid-cols-2">{FEE_FIELDS.map(([field, label]) => <Field key={field} label={label}><input name={field} type="number" min="0" step="1000" defaultValue={field === 'invoiceAmount' ? 3240000 : 0} className={inputClass} /></Field>)}<Field label="Học phí 1h"><input name="salaryOneHourForCenter" type="number" min="0" step="1000" defaultValue="0" className={inputClass} /></Field><Field label="Lương giáo viên 1h"><input name="salaryTeacher" type="number" min="0" step="1000" defaultValue="0" className={inputClass} /></Field></div></div>
+          <div className="flex justify-end gap-2 border-t border-border pt-4"><Button type="button" variant="secondary" onClick={() => setIsCreating(false)} disabled={createMutation.isPending}>Hủy</Button><Button type="submit" disabled={createMutation.isPending}>{createMutation.isPending && <Loader2 size={16} className="spin" />}Tạo học sinh</Button></div>
+        </form>
+      </Modal>
 
       <Modal open={Boolean(detailChild)} onClose={() => setDetailChild(null)} title={detailChild?.name || 'Thông tin trẻ'} description="Thông tin cá nhân và các khoản phí" className="max-h-[90vh] max-w-3xl overflow-y-auto">
         {detailChild && <div className="grid gap-5"><dl className="m-0 grid gap-3 sm:grid-cols-2"><InfoItem label="Ngày sinh" value={formatDate(detailChild.birthDate)} /><InfoItem label="Giới tính" value={detailChild.gender === 'male' ? 'Nam' : 'Nữ'} /><InfoItem label="Loại học" value={formatTypes(detailChild.type)} /><InfoItem label="Liên hệ" value={detailChild.phone || detailChild.email} /><InfoItem label="Tên bố" value={detailChild.fatherName} /><InfoItem label="Tên mẹ" value={detailChild.motherName} /><InfoItem label="Địa chỉ" value={detailChild.address} /><InfoItem label="Xuất hóa đơn" value={detailChild.isInvoice ? 'Có' : 'Không'} /></dl><div><h4 className="mb-3 mt-0 text-sm font-bold">Các khoản phí</h4><dl className="m-0 grid gap-3 sm:grid-cols-2">{FEE_FIELDS.map(([field, label]) => <InfoItem key={field} label={label} value={formatMoney(detailChild[field])} />)}<InfoItem label="Lương giáo viên" value={formatMoney(detailChild.salaryTeacher)} /><InfoItem label="Mức phí theo giờ" value={formatMoney(detailChild.salaryOneHourForCenter)} /></dl></div></div>}
