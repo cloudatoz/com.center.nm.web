@@ -23,6 +23,12 @@ const attendanceChildSchema = z.object({
   avatar: z.string().optional().default(''),
   birthDate: z.string().optional().nullable(),
   gender: z.string().optional().default(''),
+  fatherName: z.string().optional().default(''),
+  motherName: z.string().optional().default(''),
+  phone: z.string().optional().default(''),
+  email: z.string().optional().default(''),
+  address: z.string().optional().default(''),
+  description: z.string().optional().default(''),
   type: z.union([z.array(z.string()), z.string()]).optional().default([]),
   isInvoice: z.boolean().optional().default(false),
   invoiceAmount: z.number().optional().default(3240000),
@@ -42,7 +48,7 @@ const monthlyAttendanceSchema = z.object({
   _id: z.string(),
   children: z.union([attendanceChildSchema, z.coerce.string()]),
   month: z.string(),
-  type: z.preprocess((value) => value === 'BAN_TRU' ? 'CA_NGAY' : value, z.enum(['THEO_BUOI', 'CA_NGAY'])),
+  type: z.preprocess((value) => value === 'BAN_TRU' ? 'CA_NGAY' : value, z.enum(['THEO_BUOI', 'CA_NGAY', 'TAI_NHA', 'SHADOW'])),
   days: z.array(attendanceDaySchema).default([]),
   isCompleted: z.boolean().default(false),
 })
@@ -55,7 +61,7 @@ function parseMonthlyAttendance(body: unknown): MonthlyAttendance {
   return parsed.data
 }
 
-export type AttendanceType = 'THEO_BUOI' | 'CA_NGAY'
+export type AttendanceType = 'THEO_BUOI' | 'CA_NGAY' | 'TAI_NHA' | 'SHADOW'
 
 export async function getChildMonthlyAttendance(childId: string, month: string, type: AttendanceType) {
   const response = await apiClient.get(`/v1/attendance/children/${childId}`, {

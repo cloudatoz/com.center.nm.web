@@ -38,22 +38,3 @@ export async function loginAdmin(email: string, password: string): Promise<AuthS
   const response = await apiClient.post('/v1/user/login', { email, password })
   return normalizeAdminSession(response.data)
 }
-
-export async function getCurrentAdmin(session: AuthSession): Promise<AuthSession> {
-  const response = await apiClient.get('/v1/user/me')
-  const payload = unwrapPayload<Record<string, unknown>>(response.data)
-  const rawUser = (payload.user || payload) as Record<string, unknown>
-
-  return {
-    ...session,
-    user: {
-      ...session.user,
-      id: (rawUser.id as string | number) || session.user.id,
-      email: String(rawUser.email || session.user.email),
-      name: String(rawUser.name || session.user.name),
-      role: String(rawUser.role || session.user.role),
-      active: rawUser.active !== undefined ? Boolean(rawUser.active) : session.user.active,
-      avatar: (rawUser.avatar as string | undefined) || session.user.avatar,
-    },
-  }
-}

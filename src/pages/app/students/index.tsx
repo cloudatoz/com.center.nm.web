@@ -13,8 +13,10 @@ import { getTeachers } from '@/services/apis/teachers-api'
 import { AttendanceModal } from './attendance-modal'
 
 const TYPE_LABELS: Record<string, string> = {
-  CA_NGAY: 'Cả ngày', CA_NHAN: 'Cá nhân', TAI_NHA: 'Tại nhà', TIEU_HOC: 'Tiểu học', TRE_MAM_NON: 'Trẻ mầm non',
+  CA_NGAY: 'Cả ngày', CA_NHAN: 'Cá nhân', TAI_NHA: 'Tại nhà', SHADOW: 'Shadow',
 }
+
+const CHILD_TYPES = Object.entries(TYPE_LABELS)
 
 const FEE_FIELDS = [
   ['tuitionFee', 'Học phí'], ['mealFee', 'Tiền ăn'], ['csvcFee', 'Phí CSVC'],
@@ -45,9 +47,16 @@ function formatTypes(value: string | string[]) {
 
 function supportsAttendanceType(child: Child, attendanceType: AttendanceType) {
   const types = Array.isArray(child.type) ? child.type : [child.type]
-  if (attendanceType === 'CA_NGAY') return types.includes('CA_NGAY')
-  return types.length === 0 || types.some((type) => type !== 'CA_NGAY')
+  if (attendanceType === 'THEO_BUOI') return types.length === 0 || types.includes('CA_NHAN')
+  return types.includes(attendanceType)
 }
+
+const ATTENDANCE_OPTIONS: { type: AttendanceType; label: string }[] = [
+  { type: 'THEO_BUOI', label: 'cá nhân' },
+  { type: 'CA_NGAY', label: 'cả ngày' },
+  { type: 'TAI_NHA', label: 'tại nhà' },
+  { type: 'SHADOW', label: 'shadow' },
+]
 
 function InfoItem({ label, value }: { label: string; value: React.ReactNode }) {
   return (
@@ -115,6 +124,7 @@ export default function StudentsPage() {
       birthDate: String(form.get('birthDate') || '') || null,
       phone: String(form.get('phone') || '').trim(),
       email: String(form.get('email') || '').trim(),
+      type: form.getAll('type').map(String),
     }
     for (const [field] of FEE_FIELDS) data[field] = Number(form.get(field)) || 0
     data.salaryTeacher = Number(form.get('salaryTeacher')) || 0
@@ -150,7 +160,7 @@ export default function StudentsPage() {
                 <TableCell className="whitespace-nowrap font-medium">{formatMoney(child.tuitionFee)}</TableCell>
                 <TableCell className="whitespace-nowrap">{formatMoney(child.mealFee)}</TableCell>
                 <TableCell className="min-w-36 text-xs text-muted"><span className="block">CSVC: {formatMoney(child.csvcFee)}</span><span className="mt-1 block">Vẽ: {formatMoney(child.drawingFee)}</span><span className="mt-1 block">Ngoại ngữ: {formatMoney(child.languageFee)}</span><span className="mt-1 block">Vận động: {formatMoney(child.movementFee)}</span></TableCell>
-                <TableCell><div className="ml-auto grid min-w-56 gap-2">{supportsAttendanceType(child, 'THEO_BUOI') && <Button type="button" variant="secondary" size="sm" className={isAttendanceCompleted(child, 'THEO_BUOI') ? 'border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 dark:border-emerald-500/40 dark:bg-emerald-500/15 dark:text-emerald-300' : undefined} onClick={() => { setAttendanceType('THEO_BUOI'); setAttendanceChild(child) }}>{isAttendanceCompleted(child, 'THEO_BUOI') ? <CheckCircle2 size={14} /> : <CalendarCheck size={14} />}{isAttendanceCompleted(child, 'THEO_BUOI') ? 'Đã điểm danh theo buổi' : 'Điểm danh theo buổi'} {CURRENT_MONTH_SHORT}</Button>}{supportsAttendanceType(child, 'CA_NGAY') && <Button type="button" variant="secondary" size="sm" className={isAttendanceCompleted(child, 'CA_NGAY') ? 'border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 dark:border-emerald-500/40 dark:bg-emerald-500/15 dark:text-emerald-300' : undefined} onClick={() => { setAttendanceType('CA_NGAY'); setAttendanceChild(child) }}>{isAttendanceCompleted(child, 'CA_NGAY') ? <CheckCircle2 size={14} /> : <CalendarCheck size={14} />}{isAttendanceCompleted(child, 'CA_NGAY') ? 'Đã điểm danh cả ngày' : 'Điểm danh cả ngày'} {CURRENT_MONTH_SHORT}</Button>}<Button type="button" variant="secondary" size="sm" onClick={() => setDetailChild(child)}><Eye size={14} />Thông tin</Button><Button type="button" size="sm" onClick={() => setEditingChild(child)}><Pencil size={14} />Chỉnh sửa</Button></div></TableCell>
+                <TableCell><div className="ml-auto grid min-w-56 gap-2">{ATTENDANCE_OPTIONS.filter((option) => supportsAttendanceType(child, option.type)).map((option) => <Button key={option.type} type="button" variant="secondary" size="sm" className={isAttendanceCompleted(child, option.type) ? 'border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 dark:border-emerald-500/40 dark:bg-emerald-500/15 dark:text-emerald-300' : undefined} onClick={() => { setAttendanceType(option.type); setAttendanceChild(child) }}>{isAttendanceCompleted(child, option.type) ? <CheckCircle2 size={14} /> : <CalendarCheck size={14} />}{isAttendanceCompleted(child, option.type) ? `Đã điểm danh ${option.label}` : `Điểm danh ${option.label}`} {CURRENT_MONTH_SHORT}</Button>)}<Button type="button" variant="secondary" size="sm" onClick={() => setDetailChild(child)}><Eye size={14} />Thông tin</Button><Button type="button" size="sm" onClick={() => setEditingChild(child)}><Pencil size={14} />Chỉnh sửa</Button></div></TableCell>
               </TableRow>
             ))}</TableBody>
           </Table>
@@ -163,7 +173,7 @@ export default function StudentsPage() {
       </Modal>
 
       <Modal open={Boolean(editingChild)} onClose={() => !updateMutation.isPending && setEditingChild(null)} title="Chỉnh sửa thông tin" description={editingChild?.name} className="max-h-[90vh] max-w-3xl overflow-y-auto">
-        {editingChild && <form onSubmit={handleEdit} className="grid gap-5"><div className="grid gap-4 sm:grid-cols-2"><Field label="Họ và tên"><input name="name" defaultValue={editingChild.name} required className={inputClass} /></Field><Field label="Giới tính"><select name="gender" defaultValue={editingChild.gender} className={inputClass}><option value="male">Nam</option><option value="female">Nữ</option></select></Field><Field label="Ngày sinh"><input name="birthDate" type="date" defaultValue={formatDateInput(editingChild.birthDate)} className={inputClass} /></Field><Field label="Số điện thoại"><input name="phone" defaultValue={editingChild.phone} className={inputClass} /></Field><Field label="Giáo viên mặc định"><select name="teacherId" defaultValue={editingChild.teacherId || ''} className={inputClass}><option value="">Chưa chọn giáo viên</option>{(teachersQuery.data || []).filter((teacher) => teacher.active).map((teacher) => <option key={teacher._id} value={teacher._id}>{teacher.name}</option>)}</select></Field><Field label="Email"><input name="email" type="email" defaultValue={editingChild.email} className={inputClass} /></Field></div><div><h4 className="mb-3 mt-0 text-sm font-bold">Các khoản phí</h4><div className="grid gap-4 sm:grid-cols-2">{FEE_FIELDS.map(([field, label]) => <Field key={field} label={label}><input name={field} type="number" min="0" step="1000" defaultValue={editingChild[field]} className={inputClass} /></Field>)}<Field label="Lương giáo viên"><input name="salaryTeacher" type="number" min="0" step="1000" defaultValue={editingChild.salaryTeacher} className={inputClass} /></Field></div></div><div className="flex justify-end gap-2 border-t border-border pt-4"><Button type="button" variant="secondary" onClick={() => setEditingChild(null)} disabled={updateMutation.isPending}>Hủy</Button><Button type="submit" disabled={updateMutation.isPending}>{updateMutation.isPending && <Loader2 size={16} className="spin" />}Lưu thay đổi</Button></div></form>}
+        {editingChild && <form onSubmit={handleEdit} className="grid gap-5"><div className="grid gap-4 sm:grid-cols-2"><Field label="Họ và tên"><input name="name" defaultValue={editingChild.name} required className={inputClass} /></Field><Field label="Giới tính"><select name="gender" defaultValue={editingChild.gender} className={inputClass}><option value="male">Nam</option><option value="female">Nữ</option></select></Field><Field label="Ngày sinh"><input name="birthDate" type="date" defaultValue={formatDateInput(editingChild.birthDate)} className={inputClass} /></Field><Field label="Số điện thoại"><input name="phone" defaultValue={editingChild.phone} className={inputClass} /></Field><Field label="Giáo viên mặc định"><select name="teacherId" defaultValue={editingChild.teacherId || ''} className={inputClass}><option value="">Chưa chọn giáo viên</option>{(teachersQuery.data || []).filter((teacher) => teacher.active).map((teacher) => <option key={teacher._id} value={teacher._id}>{teacher.name}</option>)}</select></Field><Field label="Email"><input name="email" type="email" defaultValue={editingChild.email} className={inputClass} /></Field><fieldset className="grid gap-2 sm:col-span-2"><legend className="mb-1 text-sm font-semibold">Loại trẻ</legend><div className="flex flex-wrap gap-2">{CHILD_TYPES.map(([value, label]) => <label key={value} className="flex items-center gap-2 rounded-xl border border-border bg-app-background px-3 py-2 text-sm font-medium"><input name="type" type="checkbox" value={value} defaultChecked={(Array.isArray(editingChild.type) ? editingChild.type : [editingChild.type]).includes(value)} />{label}</label>)}</div></fieldset></div><div><h4 className="mb-3 mt-0 text-sm font-bold">Các khoản phí</h4><div className="grid gap-4 sm:grid-cols-2">{FEE_FIELDS.map(([field, label]) => <Field key={field} label={label}><input name={field} type="number" min="0" step="1000" defaultValue={editingChild[field]} className={inputClass} /></Field>)}<Field label="Lương giáo viên"><input name="salaryTeacher" type="number" min="0" step="1000" defaultValue={editingChild.salaryTeacher} className={inputClass} /></Field></div></div><div className="flex justify-end gap-2 border-t border-border pt-4"><Button type="button" variant="secondary" onClick={() => setEditingChild(null)} disabled={updateMutation.isPending}>Hủy</Button><Button type="submit" disabled={updateMutation.isPending}>{updateMutation.isPending && <Loader2 size={16} className="spin" />}Lưu thay đổi</Button></div></form>}
       </Modal>
     </div>
   )

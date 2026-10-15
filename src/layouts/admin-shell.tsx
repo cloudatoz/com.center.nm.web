@@ -1,4 +1,4 @@
-import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useQueryClient } from '@tanstack/react-query'
 import { ChevronDown, ChevronRight, LogOut, Menu, X } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
@@ -7,7 +7,6 @@ import { BrandLogo } from '@/components/brand-logo'
 import { ThemeToggle } from '@/components/theme-toggle'
 import { Button } from '@/components/ui/button'
 import { cx } from '@/lib/utils'
-import { getCurrentAdmin } from '@/services/apis/auth-api'
 import { useAuthStore } from '@/stores/auth-store'
 import { ADMIN_NAV_ITEMS, getPageTitle, isNavGroup } from './navigation'
 
@@ -16,7 +15,6 @@ export function AdminShell() {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const session = useAuthStore((state) => state.session)
-  const setSession = useAuthStore((state) => state.setSession)
   const clearSession = useAuthStore((state) => state.clearSession)
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [userMenuOpen, setUserMenuOpen] = useState(false)
@@ -48,19 +46,6 @@ export function AdminShell() {
   const toggleGroup = (groupId: string) => {
     setOpenGroups((prev) => ({ ...prev, [groupId]: !prev[groupId] }))
   }
-
-  const adminQuery = useQuery({
-    queryKey: ['current-admin'],
-    queryFn: () => {
-      if (!session) throw new Error('Authenticated session is required')
-      return getCurrentAdmin(session)
-    },
-    enabled: Boolean(session),
-  })
-
-  useEffect(() => {
-    if (adminQuery.data) setSession(adminQuery.data)
-  }, [setSession, adminQuery.data])
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
@@ -95,7 +80,7 @@ export function AdminShell() {
     navigate('/login', { replace: true })
   }
 
-  const currentUser = adminQuery.data?.user || session?.user
+  const currentUser = session?.user
   const displayName = currentUser?.name || currentUser?.email || 'Admin'
   const userInitial = displayName.charAt(0).toUpperCase()
   const roleLabel = (currentUser?.role || 'admin').toUpperCase()
