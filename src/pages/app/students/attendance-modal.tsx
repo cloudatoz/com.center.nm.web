@@ -22,7 +22,7 @@ const currentMonth = () => {
 const isFullDayType = (type: AttendanceType) => type === 'CA_NGAY' || type === 'SHADOW'
 const needsTeacher = (type: AttendanceType) => type !== 'CA_NGAY'
 
-export function AttendanceModal({ child, initialType, onClose }: { child: Child | null; initialType: AttendanceType; onClose: () => void }) {
+export function AttendanceModal({ child, initialType, initialMonth, onClose }: { child: Child | null; initialType: AttendanceType; initialMonth?: string; onClose: () => void }) {
   const queryClient = useQueryClient()
   const [month, setMonth] = useState(currentMonth)
   const [spendTime, setSpendTime] = useState(1)
@@ -32,7 +32,8 @@ export function AttendanceModal({ child, initialType, onClose }: { child: Child 
 
   useEffect(() => {
     setAttendanceType(initialType)
-  }, [child?._id, initialType])
+    if (initialMonth) setMonth(initialMonth)
+  }, [child?._id, initialType, initialMonth])
   const pricingConfig = configForAttendance(child, attendanceType)
   useEffect(() => {
     setTeacherId(pricingConfig?.teacherId || '')

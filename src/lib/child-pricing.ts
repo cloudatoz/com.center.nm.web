@@ -43,6 +43,7 @@ export const emptyTypeConfig = (type: ChildTypeCode): ChildTypeConfig => ({
   teacherId: null,
   teacherName: '',
   teacherPrice: 0,
+  scheduleInWeek: [],
 })
 
 export function boardingTotal(child: Pick<Child, 'type'> | null | undefined) {

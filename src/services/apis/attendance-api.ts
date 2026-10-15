@@ -31,6 +31,8 @@ const attendanceChildSchema = z.object({
   address: z.string().optional().default(''),
   description: z.string().optional().default(''),
   planLink: z.string().optional().default(''),
+  status: z.enum(['DANG_HOC', 'NGHI_HOC']).optional().default('DANG_HOC'),
+  offAt: z.string().optional().nullable(),
   type: z.array(childTypeConfigSchema).default([]),
   isInvoice: z.boolean().optional().default(false),
   invoiceAmount: z.number().optional().default(3240000),

@@ -16,6 +16,7 @@ export const childTypeConfigSchema = z.object({
   teacherId: z.coerce.string().optional().nullable(),
   teacherName: z.string().optional().default(''),
   teacherPrice: z.number().optional().default(0),
+  scheduleInWeek: z.array(z.string()).optional().default([]),
 })
 
 const childSchema = z.object({
@@ -32,6 +33,8 @@ const childSchema = z.object({
   address: z.string().optional().default(''),
   description: z.string().optional().default(''),
   planLink: z.string().optional().default(''),
+  status: z.enum(['DANG_HOC', 'NGHI_HOC']).optional().default('DANG_HOC'),
+  offAt: z.string().optional().nullable(),
   type: z.array(childTypeConfigSchema).default([]),
   invoiceAmount: z.number().optional().default(0),
   isInvoice: z.boolean().optional().default(false),

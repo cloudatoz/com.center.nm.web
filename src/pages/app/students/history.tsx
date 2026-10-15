@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { CalendarDays, Check, CheckCircle2, Copy, ExternalLink, FileImage, Loader2, Pencil, Search, Table2, Trash2 } from 'lucide-react'
+import { CalendarDays, Check, CheckCircle2, Copy, ExternalLink, FileImage, Loader2, Pencil, Search, Table2, Trash2, XCircle } from 'lucide-react'
 import { type FormEvent, useEffect, useMemo, useRef, useState } from 'react'
 import { toBlob } from 'html-to-image'
 import { toast } from 'sonner'
@@ -34,6 +34,16 @@ const needsTeacher = (type: AttendanceType) => type !== 'CA_NGAY'
 const attendanceTypeLabel = (type: AttendanceType) => ({
   THEO_BUOI: 'Cá nhân', CA_NGAY: 'Cả ngày', TAI_NHA: 'Tại nhà', SHADOW: 'Shadow',
 })[type]
+
+function AttendanceStatusList({ rows }: { rows: MonthlyAttendance[] }) {
+  return <div className="grid gap-1 rounded-lg border border-border bg-app-background p-2">
+    <strong className="text-xs text-text-main">Điểm danh</strong>
+    {rows.map((row) => <span key={row._id} className={`flex items-center gap-1.5 whitespace-nowrap text-[11px] font-bold ${row.isCompleted ? 'text-emerald-600 dark:text-emerald-300' : 'text-red-600 dark:text-red-300'}`}>
+      {row.isCompleted ? <CheckCircle2 size={13} /> : <XCircle size={13} />}
+      {attendanceTypeLabel(row.type)}: {row.isCompleted ? 'Hoàn thành' : 'Chưa'}
+    </span>)}
+  </div>
+}
 
 function currentMonth() {
   const now = new Date()
@@ -224,6 +234,8 @@ export default function StudentHistoryPage() {
       birthDate: String(form.get('birthDate') || '') || null,
       phone: String(form.get('phone') || '').trim(),
       planLink: String(form.get('planLink') || '').trim(),
+      status: String(form.get('status') || 'DANG_HOC') as Child['status'],
+      offAt: String(form.get('offAt') || '') || null,
       type: childTypes,
       isInvoice: form.get('isInvoice') === 'on',
       invoiceAmount: Math.max(Number(form.get('invoiceAmount')) || 0, 0),
@@ -504,7 +516,7 @@ export default function StudentHistoryPage() {
                           <strong className="block max-w-40 whitespace-normal break-words leading-snug">{child?.name || `Trẻ #${attendance.children}`}</strong>
                           <span className="block text-xs text-muted">{formatBirthDate(child?.birthDate)}</span>
                         </div>
-                      </div><Button type="button" size="sm" variant="secondary" onClick={() => child && setEditingChild(child)}><Pencil size={13} />Cập nhật Trẻ</Button><Button type="button" size="sm" variant="secondary" onClick={() => openPlanLink(child?.planLink)}><ExternalLink size={13} />Kế hoạch</Button><Button type="button" size="sm" variant="secondary" onClick={() => setReceiptGroup({ childId, rows: childRows })}><FileImage size={13} />Xuất phiếu</Button></div>
+                      </div><Button type="button" size="sm" variant="secondary" onClick={() => child && setEditingChild(child)}><Pencil size={13} />Cập nhật Trẻ</Button><Button type="button" size="sm" variant="secondary" onClick={() => openPlanLink(child?.planLink)}><ExternalLink size={13} />Kế hoạch</Button><Button type="button" size="sm" variant="secondary" onClick={() => setReceiptGroup({ childId, rows: childRows })}><FileImage size={13} />Xuất phiếu</Button><AttendanceStatusList rows={childRows} /></div>
                     </TableCell>}
                     <TableCell className="text-center">
                       <strong className="mb-1 block max-w-32 whitespace-normal rounded-lg border border-blue-200 bg-blue-50/60 px-2 py-1 text-xs leading-snug text-text-main dark:border-blue-500/30 dark:bg-blue-500/10 sm:hidden">{child?.name || `Trẻ #${attendance.children}`}</strong>
@@ -555,15 +567,19 @@ export default function StudentHistoryPage() {
                       <Button type="button" size="sm" variant="secondary" onClick={() => child && setEditingChild(child)}><Pencil size={13} />Cập nhật Trẻ</Button>
                       <Button type="button" size="sm" variant="secondary" onClick={() => openPlanLink(child?.planLink)}><ExternalLink size={13} />Kế hoạch</Button>
                       <Button type="button" size="sm" variant="secondary" onClick={() => setReceiptGroup({ childId, rows })}><FileImage size={13} />Xuất phiếu</Button>
+                      <AttendanceStatusList rows={rows} />
                     </div>
                   </div>
                   <div className="grid gap-3 p-3">
-                    <div className="flex items-center justify-between gap-2 rounded-xl border border-blue-200 bg-blue-50/60 p-2 dark:border-blue-500/30 dark:bg-blue-500/10 sm:hidden">
-                      <strong className="min-w-0 flex-1 truncate text-sm">{child?.name || `Trẻ #${childId}`}</strong>
-                      <div className="grid shrink-0 gap-2">
-                        <Button type="button" size="sm" variant="secondary" onClick={() => child && setEditingChild(child)}><Pencil size={13} />Cập nhật Trẻ</Button>
-                        <Button type="button" size="sm" variant="secondary" onClick={() => openPlanLink(child?.planLink)}><ExternalLink size={13} />Kế hoạch</Button>
-                        <Button type="button" size="sm" variant="secondary" onClick={() => setReceiptGroup({ childId, rows })}><FileImage size={13} />Xuất phiếu</Button>
+                    <div className="grid gap-2 rounded-xl border border-blue-200 bg-blue-50/60 p-2 dark:border-blue-500/30 dark:bg-blue-500/10 sm:hidden">
+                      <strong className="min-w-0 truncate text-sm">{child?.name || `Trẻ #${childId}`}</strong>
+                      <div className="grid grid-cols-2 items-start gap-2">
+                        <div className="grid gap-2">
+                          <Button type="button" size="sm" variant="secondary" onClick={() => child && setEditingChild(child)}><Pencil size={13} />Cập nhật Trẻ</Button>
+                          <Button type="button" size="sm" variant="secondary" onClick={() => openPlanLink(child?.planLink)}><ExternalLink size={13} />Kế hoạch</Button>
+                          <Button type="button" size="sm" variant="secondary" onClick={() => setReceiptGroup({ childId, rows })}><FileImage size={13} />Xuất phiếu</Button>
+                        </div>
+                        <AttendanceStatusList rows={rows} />
                       </div>
                     </div>
                     {rows.map((attendance) => {
@@ -608,6 +624,8 @@ export default function StudentHistoryPage() {
           <div className="grid gap-4 sm:grid-cols-2">
             <label className="grid gap-1.5 text-sm font-semibold">Họ và tên<input name="name" defaultValue={editingChild.name} required className="h-10 rounded-xl border border-border bg-app-background px-3 font-normal outline-none focus:border-primary" /></label>
             <label className="grid gap-1.5 text-sm font-semibold">Giới tính<select name="gender" defaultValue={editingChild.gender} className="h-10 rounded-xl border border-border bg-app-background px-3 font-normal outline-none focus:border-primary"><option value="male">Nam</option><option value="female">Nữ</option></select></label>
+            <label className="grid gap-1.5 text-sm font-semibold">Trạng thái<select name="status" defaultValue={editingChild.status} className="h-10 rounded-xl border border-border bg-app-background px-3 font-normal outline-none focus:border-primary"><option value="DANG_HOC">Đang học</option><option value="NGHI_HOC">Đã nghỉ</option></select></label>
+            <label className="grid gap-1.5 text-sm font-semibold">Ngày nghỉ học<input name="offAt" type="date" defaultValue={formatDateInput(editingChild.offAt)} className="h-10 rounded-xl border border-border bg-app-background px-3 font-normal outline-none focus:border-primary" /></label>
             <label className="grid gap-1.5 text-sm font-semibold">Ngày sinh<input name="birthDate" type="date" defaultValue={formatDateInput(editingChild.birthDate)} className="h-10 rounded-xl border border-border bg-app-background px-3 font-normal outline-none focus:border-primary" /></label>
             <label className="grid gap-1.5 text-sm font-semibold">Số điện thoại<input name="phone" defaultValue={editingChild.phone} className="h-10 rounded-xl border border-border bg-app-background px-3 font-normal outline-none focus:border-primary" /></label>
             <label className="grid gap-1.5 text-sm font-semibold sm:col-span-2">Link kế hoạch<input name="planLink" type="url" defaultValue={editingChild.planLink} placeholder="https://..." className="h-10 rounded-xl border border-border bg-app-background px-3 font-normal outline-none focus:border-primary" /></label>
