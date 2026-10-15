@@ -59,7 +59,7 @@ export default function TeacherPaymentsPage() {
         if (day.absent || !day.teacherId || !day.teacherName || fixedIds.has(day.teacherId)) continue
         const current = hourly.get(day.teacherId) || { teacherId: day.teacherId, name: day.teacherName, amount: 0, totalHours: 0 }
         current.totalHours += day.spendTime
-        current.amount += day.spendTime * (day.salaryTeacher || attendance.children.salaryTeacher || 0)
+        current.amount += day.spendTime * day.salaryTeacher
         hourly.set(day.teacherId, current)
       }
     }

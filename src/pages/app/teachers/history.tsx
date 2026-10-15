@@ -109,11 +109,11 @@ export default function TeacherHistoryPage() {
       for (const day of attendance.days) {
         if (day.absent || !day.teacherId || !day.teacherName || fixedSalaryTeacherIds.has(day.teacherId)) continue
         const teacher = teachers.get(day.teacherId) || { teacherName: day.teacherName, children: new Map<string, ChildTeachingGroup>() }
-        const childGroup = teacher.children.get(child._id) || { child, days: [], salaryPerHour: day.salaryTeacher || child.salaryTeacher || 0, totalHours: 0, totalSalary: 0 }
+        const childGroup: ChildTeachingGroup = teacher.children.get(child._id) || { child, days: [], salaryPerHour: day.salaryTeacher || 0, totalHours: 0, totalSalary: 0 }
         childGroup.days.push(day)
-        childGroup.salaryPerHour = day.salaryTeacher || child.salaryTeacher || childGroup.salaryPerHour
+        childGroup.salaryPerHour = day.salaryTeacher || childGroup.salaryPerHour
         childGroup.totalHours += day.spendTime
-        childGroup.totalSalary += day.spendTime * (day.salaryTeacher || child.salaryTeacher || 0)
+        childGroup.totalSalary += day.spendTime * day.salaryTeacher
         teacher.children.set(child._id, childGroup)
         teachers.set(day.teacherId, teacher)
       }
@@ -140,8 +140,8 @@ export default function TeacherHistoryPage() {
       for (const day of attendance.days) {
         if (day.absent || !day.teacherId || !fixedSalaryTeacherIds.has(day.teacherId)) continue
         const children = teachingByTeacher.get(day.teacherId) || new Map<string, ChildTeachingGroup>()
-        const salaryPerHour = day.salaryTeacher || attendance.children.salaryTeacher || 0
-        const childGroup = children.get(attendance.children._id) || { child: attendance.children, days: [], salaryPerHour, totalHours: 0, totalSalary: 0 }
+        const salaryPerHour = day.salaryTeacher || 0
+        const childGroup: ChildTeachingGroup = children.get(attendance.children._id) || { child: attendance.children, days: [], salaryPerHour, totalHours: 0, totalSalary: 0 }
         childGroup.days.push(day)
         childGroup.salaryPerHour = salaryPerHour || childGroup.salaryPerHour
         childGroup.totalHours += day.spendTime

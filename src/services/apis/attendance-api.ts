@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { ApiContractError, apiClient, unwrapPayload } from './api-client'
+import { childTypeConfigSchema } from './children-api'
 
 const attendanceDaySchema = z.object({
   date: z.string(),
@@ -29,19 +30,10 @@ const attendanceChildSchema = z.object({
   email: z.string().optional().default(''),
   address: z.string().optional().default(''),
   description: z.string().optional().default(''),
-  type: z.union([z.array(z.string()), z.string()]).optional().default([]),
+  planLink: z.string().optional().default(''),
+  type: z.array(childTypeConfigSchema).default([]),
   isInvoice: z.boolean().optional().default(false),
   invoiceAmount: z.number().optional().default(3240000),
-  salaryTeacher: z.number().optional().default(0),
-  tuitionFee: z.number().optional().default(0),
-  salaryOneHourForCenter: z.number().optional().default(0),
-  mealFee: z.number().optional().default(0),
-  csvcFee: z.number().optional().default(0),
-  drawingFee: z.number().optional().default(0),
-  languageFee: z.number().optional().default(0),
-  movementFee: z.number().optional().default(0),
-  teacherId: z.coerce.string().optional().nullable(),
-  teacherName: z.string().optional().default(''),
 })
 
 const monthlyAttendanceSchema = z.object({
@@ -91,7 +83,8 @@ export async function createAttendance(childId: string, date: string, spendTime:
 }
 
 export async function deleteAttendanceDay(childId: string, date: string, type: AttendanceType) {
-  await apiClient.delete(`/v1/attendance/by-date/${childId}`, { data: { date, type } })
+  const response = await apiClient.delete(`/v1/attendance/by-date/${childId}`, { data: { date, type } })
+  return parseMonthlyAttendance(response.data)
 }
 
 export async function updateAttendanceDay(id: string, date: string, spendTime: number, teacherId?: string, absent = false, refund = 0, notes = '', lessonType = 'HỌC') {

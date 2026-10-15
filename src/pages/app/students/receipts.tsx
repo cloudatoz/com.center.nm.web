@@ -5,6 +5,7 @@ import { toast } from 'sonner'
 import { Card, CardHeader } from '@/components/ui/card'
 import { PageHeader } from '@/components/ui/page-header'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { boardingTotal } from '@/lib/child-pricing'
 import { getMonthlyAttendances, type MonthlyAttendance } from '@/services/apis/attendance-api'
 import { getPaymentReceipts, updatePaymentReceipt } from '@/services/apis/payment-receipt-api'
 
@@ -33,12 +34,11 @@ const formatBirthDate = (value?: string | null) => value
 function attendanceAmount(attendance: MonthlyAttendance) {
   const child = typeof attendance.children === 'string' ? null : attendance.children
   if (attendance.type === 'CA_NGAY') {
-    return (child?.tuitionFee || 0) + (child?.mealFee || 0) + (child?.csvcFee || 0) +
-      (child?.drawingFee || 0) + (child?.languageFee || 0) + (child?.movementFee || 0) -
+    return boardingTotal(child) -
       attendance.days.reduce((total, day) => total + day.refund, 0)
   }
   return attendance.days.reduce(
-    (total, day) => total + day.spendTime * (day.tuitionFee || child?.salaryOneHourForCenter || 0) - day.refund,
+    (total, day) => total + day.spendTime * day.tuitionFee - day.refund,
     0,
   )
 }
@@ -76,7 +76,7 @@ export default function StudentReceiptsPage() {
       }
       current.amount += Math.max(attendanceAmount(attendance), 0)
       current.lessonTypes.add(attendance.type === 'CA_NGAY' ? 'Cả ngày' : 'Theo buổi')
-      if (child.teacherName) current.teachers.add(child.teacherName)
+      for (const config of child.type) if (config.teacherName) current.teachers.add(config.teacherName)
       for (const day of attendance.days) {
         if (!day.absent) current.lessonCount += 1
         if (day.teacherName) current.teachers.add(day.teacherName)

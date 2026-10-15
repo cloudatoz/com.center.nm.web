@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { toast } from 'sonner'
 import { Modal } from '@/components/ui/modal'
 import { Button } from '@/components/ui/button'
+import { configForAttendance } from '@/lib/child-pricing'
 import { type AttendanceType, createAttendance, deleteAttendanceDay, getChildMonthlyAttendance, setAttendanceCompleted } from '@/services/apis/attendance-api'
 import type { Child } from '@/services/apis/children-api'
 import { getTeachers } from '@/services/apis/teachers-api'
@@ -31,8 +32,11 @@ export function AttendanceModal({ child, initialType, onClose }: { child: Child 
 
   useEffect(() => {
     setAttendanceType(initialType)
-    setTeacherId(child?.teacherId || '')
   }, [child?._id, initialType])
+  const pricingConfig = configForAttendance(child, attendanceType)
+  useEffect(() => {
+    setTeacherId(pricingConfig?.teacherId || '')
+  }, [pricingConfig?.teacherId])
   const queryKey = ['attendance', child?._id, month, attendanceType]
   const attendanceQuery = useQuery({
     queryKey,
@@ -47,7 +51,7 @@ export function AttendanceModal({ child, initialType, onClose }: { child: Child 
       if (attended) await deleteAttendanceDay(child._id, date, attendanceType)
       else {
         if (needsTeacher(attendanceType) && !teacherId) throw new Error('Vui lòng chọn giáo viên')
-        await createAttendance(child._id, date, isFullDayType(attendanceType) ? 0 : spendTime, attendanceType, teacherId)
+        await createAttendance(child._id, date, attendanceType === 'CA_NGAY' ? 0 : spendTime, attendanceType, teacherId)
       }
     },
     onSuccess: async (_, variables) => {
@@ -88,6 +92,9 @@ export function AttendanceModal({ child, initialType, onClose }: { child: Child 
             {!isFullDayType(attendanceType) && <label className="grid gap-1.5 text-xs font-semibold text-muted">Số giờ mặc định<select value={spendTime} onChange={(event) => setSpendTime(Number(event.target.value))} className="h-10 rounded-xl border border-border bg-surface px-3 text-sm font-medium text-text-main outline-none focus:border-primary"><option value={1}>1h</option><option value={1.5}>1,5h</option><option value={2}>2h</option><option value={2.5}>2,5h</option><option value={3}>3h</option></select></label>}
             {needsTeacher(attendanceType) && <label className="grid gap-1.5 text-xs font-semibold text-muted">Giáo viên<select value={teacherId} onChange={(event) => setTeacherId(event.target.value)} className="h-10 min-w-44 rounded-xl border border-border bg-surface px-3 text-sm font-medium text-text-main outline-none focus:border-primary"><option value="">Chọn giáo viên</option>{activeTeachers.map((teacher) => <option key={teacher._id} value={teacher._id}>{teacher.name}</option>)}</select></label>}
           </div>
+          {child && <div className="text-xs font-semibold text-muted">{attendanceType === 'CA_NGAY'
+            ? `Học phí tháng: ${(pricingConfig?.prices.tuition || 0).toLocaleString('vi-VN')} đ · CSVC: ${(pricingConfig?.prices.csvc || 0).toLocaleString('vi-VN')} đ · Tiền ăn: ${(pricingConfig?.prices.meal || 0).toLocaleString('vi-VN')} đ`
+            : `Học phí 1h: ${(pricingConfig?.price || 0).toLocaleString('vi-VN')} đ · Lương GV 1h: ${(pricingConfig?.teacherPrice || 0).toLocaleString('vi-VN')} đ`}</div>}
           <div className="flex flex-wrap items-end gap-4 text-sm"><div><span className="block text-xs text-muted">Số ngày học</span><strong className="text-lg text-primary">{attendanceQuery.data?.days.length || 0}</strong></div>{!isFullDayType(attendanceType) && <div><span className="block text-xs text-muted">Tổng thời gian</span><strong className="text-lg text-primary">{totalHours}h</strong></div>}{attendanceQuery.data?.isCompleted ? <><span className="inline-flex h-10 items-center gap-1.5 rounded-xl border border-emerald-300 bg-emerald-50 px-3 text-xs font-bold text-emerald-700 dark:border-emerald-500/40 dark:bg-emerald-500/15 dark:text-emerald-300"><CheckCircle2 size={16} />Đã hoàn tất</span><Button type="button" variant="secondary" size="compact" disabled={completeMutation.isPending} onClick={() => completeMutation.mutate(false)}>{completeMutation.isPending ? <Loader2 size={15} className="spin" /> : <Pencil size={15} />}Chỉnh sửa điểm danh</Button></> : <Button type="button" size="compact" disabled={!attendanceQuery.data || completeMutation.isPending || mutation.isPending} onClick={() => completeMutation.mutate(true)}>{completeMutation.isPending ? <Loader2 size={15} className="spin" /> : <CheckCircle2 size={15} />}Hoàn tất điểm danh</Button>}</div>
         </div>
         <div className="grid grid-cols-7 gap-1.5 sm:gap-2">

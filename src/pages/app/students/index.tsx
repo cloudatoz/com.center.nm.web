@@ -7,22 +7,12 @@ import { Card, CardHeader } from '@/components/ui/card'
 import { Modal } from '@/components/ui/modal'
 import { PageHeader } from '@/components/ui/page-header'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-import { type Child, type CreateChildInput, createChild, getChildren, updateChild } from '@/services/apis/children-api'
+import { childTypeLabel, getTypeConfig, supportsAttendanceType } from '@/lib/child-pricing'
+import { type Child, type ChildTypeConfig, type CreateChildInput, createChild, getChildren, updateChild } from '@/services/apis/children-api'
 import { type AttendanceType, getMonthlyAttendances } from '@/services/apis/attendance-api'
 import { getTeachers } from '@/services/apis/teachers-api'
 import { AttendanceModal } from './attendance-modal'
-
-const TYPE_LABELS: Record<string, string> = {
-  CA_NGAY: 'Cả ngày', CA_NHAN: 'Cá nhân', TAI_NHA: 'Tại nhà', SHADOW: 'Shadow',
-}
-
-const CHILD_TYPES = Object.entries(TYPE_LABELS)
-
-const FEE_FIELDS = [
-  ['tuitionFee', 'Học phí'], ['mealFee', 'Tiền ăn'], ['csvcFee', 'Phí CSVC'],
-  ['drawingFee', 'Phí vẽ'], ['languageFee', 'Phí ngoại ngữ'],
-  ['movementFee', 'Phí vận động'], ['invoiceAmount', 'Số tiền hóa đơn'],
-] as const
+import { ChildTypeEditor, readTypeConfigs } from './child-type-editor'
 
 function formatDate(value?: string | null) {
   if (!value) return '—'
@@ -40,16 +30,7 @@ const formatMoney = (value: number) => `${Number(value || 0).toLocaleString('vi-
 const defaultAvatar = (gender?: string) =>
   gender === 'female' ? '/avatars/default-girl.svg' : '/avatars/default-boy.svg'
 
-function formatTypes(value: string | string[]) {
-  const types = Array.isArray(value) ? value : [value]
-  return types.map((type) => TYPE_LABELS[type] || type).join(', ') || '—'
-}
-
-function supportsAttendanceType(child: Child, attendanceType: AttendanceType) {
-  const types = Array.isArray(child.type) ? child.type : [child.type]
-  if (attendanceType === 'THEO_BUOI') return types.length === 0 || types.includes('CA_NHAN')
-  return types.includes(attendanceType)
-}
+const formatTypes = (value: ChildTypeConfig[]) => value.map((item) => childTypeLabel(item.type)).join(', ') || '—'
 
 const ATTENDANCE_OPTIONS: { type: AttendanceType; label: string }[] = [
   { type: 'THEO_BUOI', label: 'cá nhân' },
@@ -74,6 +55,12 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 const inputClass = 'h-10 rounded-xl border border-border bg-app-background px-3 font-normal outline-none focus:border-primary'
 const CURRENT_MONTH_SHORT = `T${new Date().getMonth() + 1}`
 const CURRENT_MONTH = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`
+
+function TypePricingSummary({ configs }: { configs: ChildTypeConfig[] }) {
+  return <div className="grid gap-1.5">{configs.map((config) => <div key={config.type} className="text-xs"><strong>{childTypeLabel(config.type)}:</strong> {config.type === 'CA_NGAY'
+    ? `${formatMoney(config.prices.tuition)} + CSVC ${formatMoney(config.prices.csvc)} + ăn ${formatMoney(config.prices.meal)}`
+    : `${formatMoney(config.price)}/h${config.teacherName ? ` · GV ${config.teacherName}` : ''}`}</div>)}</div>
+}
 
 export default function StudentsPage() {
   const queryClient = useQueryClient()
@@ -129,7 +116,7 @@ export default function StudentsPage() {
   const handleCreate = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     const form = new FormData(event.currentTarget)
-    const types = form.getAll('type').map(String)
+    const types = readTypeConfigs(form)
     if (types.length === 0) return toast.error('Vui lòng chọn ít nhất một loại học')
     const gender = String(form.get('gender') || 'male')
     const data: CreateChildInput = {
@@ -143,13 +130,11 @@ export default function StudentsPage() {
       phone: String(form.get('phone') || '').trim(),
       email: String(form.get('email') || '').trim(),
       address: String(form.get('address') || '').trim(),
-      teacherId: String(form.get('teacherId') || '') || null,
+      planLink: String(form.get('planLink') || '').trim(),
       type: types,
       isInvoice: form.get('isInvoice') === 'on',
     }
-    for (const [field] of FEE_FIELDS) data[field] = Number(form.get(field)) || 0
-    data.salaryTeacher = Number(form.get('salaryTeacher')) || 0
-    data.salaryOneHourForCenter = Number(form.get('salaryOneHourForCenter')) || 0
+    data.invoiceAmount = Number(form.get('invoiceAmount')) || 0
     createMutation.mutate(data)
   }
 
@@ -164,11 +149,10 @@ export default function StudentsPage() {
       birthDate: String(form.get('birthDate') || '') || null,
       phone: String(form.get('phone') || '').trim(),
       email: String(form.get('email') || '').trim(),
-      type: form.getAll('type').map(String),
+      planLink: String(form.get('planLink') || '').trim(),
+      type: readTypeConfigs(form),
+      invoiceAmount: Number(form.get('invoiceAmount')) || 0,
     }
-    for (const [field] of FEE_FIELDS) data[field] = Number(form.get(field)) || 0
-    data.salaryTeacher = Number(form.get('salaryTeacher')) || 0
-    data.teacherId = String(form.get('teacherId') || '') || null
     updateMutation.mutate({ id: editingChild._id, data })
   }
 
@@ -187,15 +171,13 @@ export default function StudentsPage() {
 
         {childrenQuery.isSuccess && filteredChildren.length > 0 && (
           <Table>
-            <TableHeader><TableRow><TableHead>Trẻ</TableHead><TableHead>Ngày sinh</TableHead><TableHead>Loại học</TableHead><TableHead>Học phí</TableHead><TableHead>Tiền ăn</TableHead><TableHead>Phí khác</TableHead><TableHead className="text-right">Thao tác</TableHead></TableRow></TableHeader>
+            <TableHeader><TableRow><TableHead>Trẻ</TableHead><TableHead>Ngày sinh</TableHead><TableHead>Loại học</TableHead><TableHead>Học phí theo loại</TableHead><TableHead className="text-right">Thao tác</TableHead></TableRow></TableHeader>
             <TableBody>{filteredChildren.map((child) => (
               <TableRow key={child._id}>
-                <TableCell><div className="flex min-w-44 items-center gap-3"><img src={child.avatar || defaultAvatar(child.gender)} onError={(event) => { event.currentTarget.src = defaultAvatar(child.gender) }} alt={`Ảnh ${child.name}`} className="h-11 w-11 shrink-0 rounded-xl bg-surface-muted object-cover" /><div><strong className="block">{child.name}</strong><span className="inline-flex items-center gap-1 text-xs text-muted">Thứ tự <input type="number" min="0" step="1" defaultValue={child.order} aria-label={`Thứ tự của ${child.name}`} onBlur={(event) => { const order = Math.max(Number(event.target.value) || 0, 0); if (order !== child.order) updateMutation.mutate({ id: child._id, data: { order } }) }} className="h-6 w-14 rounded-md border border-border bg-surface px-1.5 text-center text-xs" /> · {child.gender === 'male' ? 'Nam' : child.gender === 'female' ? 'Nữ' : ''}</span>{child.teacherName && <span className="mt-0.5 block text-xs text-primary">GV: {child.teacherName}</span>}</div></div></TableCell>
+                <TableCell><div className="flex min-w-44 items-center gap-3"><img src={child.avatar || defaultAvatar(child.gender)} onError={(event) => { event.currentTarget.src = defaultAvatar(child.gender) }} alt={`Ảnh ${child.name}`} className="h-11 w-11 shrink-0 rounded-xl bg-surface-muted object-cover" /><div><strong className="block">{child.name}</strong><span className="inline-flex items-center gap-1 text-xs text-muted">Thứ tự <input type="number" min="0" step="1" defaultValue={child.order} aria-label={`Thứ tự của ${child.name}`} onBlur={(event) => { const order = Math.max(Number(event.target.value) || 0, 0); if (order !== child.order) updateMutation.mutate({ id: child._id, data: { order } }) }} className="h-6 w-14 rounded-md border border-border bg-surface px-1.5 text-center text-xs" /> · {child.gender === 'male' ? 'Nam' : child.gender === 'female' ? 'Nữ' : ''}</span></div></div></TableCell>
                 <TableCell className="whitespace-nowrap text-muted">{formatDate(child.birthDate)}</TableCell>
                 <TableCell className="min-w-32">{formatTypes(child.type)}</TableCell>
-                <TableCell className="whitespace-nowrap font-medium">{formatMoney(child.tuitionFee)}</TableCell>
-                <TableCell className="whitespace-nowrap">{formatMoney(child.mealFee)}</TableCell>
-                <TableCell className="min-w-36 text-xs text-muted"><span className="block">CSVC: {formatMoney(child.csvcFee)}</span><span className="mt-1 block">Vẽ: {formatMoney(child.drawingFee)}</span><span className="mt-1 block">Ngoại ngữ: {formatMoney(child.languageFee)}</span><span className="mt-1 block">Vận động: {formatMoney(child.movementFee)}</span></TableCell>
+                <TableCell className="min-w-64"><TypePricingSummary configs={child.type} /></TableCell>
                 <TableCell><div className="ml-auto grid min-w-56 gap-2">{ATTENDANCE_OPTIONS.filter((option) => supportsAttendanceType(child, option.type)).map((option) => <Button key={option.type} type="button" variant="secondary" size="sm" className={isAttendanceCompleted(child, option.type) ? 'border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 dark:border-emerald-500/40 dark:bg-emerald-500/15 dark:text-emerald-300' : undefined} onClick={() => { setAttendanceType(option.type); setAttendanceChild(child) }}>{isAttendanceCompleted(child, option.type) ? <CheckCircle2 size={14} /> : <CalendarCheck size={14} />}{isAttendanceCompleted(child, option.type) ? `Đã điểm danh ${option.label}` : `Điểm danh ${option.label}`} {CURRENT_MONTH_SHORT}</Button>)}<Button type="button" variant="secondary" size="sm" onClick={() => setDetailChild(child)}><Eye size={14} />Thông tin</Button><Button type="button" size="sm" onClick={() => setEditingChild(child)}><Pencil size={14} />Chỉnh sửa</Button></div></TableCell>
               </TableRow>
             ))}</TableBody>
@@ -215,22 +197,22 @@ export default function StudentsPage() {
             <Field label="Tên mẹ"><input name="motherName" className={inputClass} /></Field>
             <Field label="Số điện thoại"><input name="phone" type="tel" className={inputClass} /></Field>
             <Field label="Email"><input name="email" type="email" className={inputClass} /></Field>
-            <Field label="Giáo viên mặc định"><select name="teacherId" defaultValue="" className={inputClass}><option value="">Chưa chọn giáo viên</option>{(teachersQuery.data || []).filter((teacher) => teacher.active).map((teacher) => <option key={teacher._id} value={teacher._id}>{teacher.name}</option>)}</select></Field>
             <Field label="Địa chỉ"><input name="address" className={inputClass} /></Field>
-            <fieldset className="grid gap-2 sm:col-span-2"><legend className="mb-1 text-sm font-semibold">Loại học</legend><div className="flex flex-wrap gap-2">{CHILD_TYPES.map(([value, label]) => <label key={value} className="flex items-center gap-2 rounded-xl border border-border bg-app-background px-3 py-2 text-sm font-medium"><input name="type" type="checkbox" value={value} defaultChecked={value === 'CA_NGAY'} />{label}</label>)}</div></fieldset>
+            <Field label="Link kế hoạch"><input name="planLink" type="url" placeholder="https://..." className={inputClass} /></Field>
+            <ChildTypeEditor initial={[]} teachers={teachersQuery.data || []} />
+            <Field label="Số tiền hóa đơn"><input name="invoiceAmount" type="number" min="0" step="1000" defaultValue={3240000} className={inputClass} /></Field>
             <label className="flex items-center gap-2 text-sm font-semibold sm:col-span-2"><input name="isInvoice" type="checkbox" />Xuất hóa đơn</label>
           </div>
-          <div><h4 className="mb-3 mt-0 text-sm font-bold">Các khoản phí</h4><div className="grid gap-4 sm:grid-cols-2">{FEE_FIELDS.map(([field, label]) => <Field key={field} label={label}><input name={field} type="number" min="0" step="1000" defaultValue={field === 'invoiceAmount' ? 3240000 : 0} className={inputClass} /></Field>)}<Field label="Học phí 1h"><input name="salaryOneHourForCenter" type="number" min="0" step="1000" defaultValue="0" className={inputClass} /></Field><Field label="Lương giáo viên 1h"><input name="salaryTeacher" type="number" min="0" step="1000" defaultValue="0" className={inputClass} /></Field></div></div>
           <div className="flex justify-end gap-2 border-t border-border pt-4"><Button type="button" variant="secondary" onClick={() => setIsCreating(false)} disabled={createMutation.isPending}>Hủy</Button><Button type="submit" disabled={createMutation.isPending}>{createMutation.isPending && <Loader2 size={16} className="spin" />}Tạo học sinh</Button></div>
         </form>
       </Modal>
 
       <Modal open={Boolean(detailChild)} onClose={() => setDetailChild(null)} title={detailChild?.name || 'Thông tin trẻ'} description="Thông tin cá nhân và các khoản phí" className="max-h-[90vh] max-w-3xl overflow-y-auto">
-        {detailChild && <div className="grid gap-5"><dl className="m-0 grid gap-3 sm:grid-cols-2"><InfoItem label="Ngày sinh" value={formatDate(detailChild.birthDate)} /><InfoItem label="Giới tính" value={detailChild.gender === 'male' ? 'Nam' : 'Nữ'} /><InfoItem label="Loại học" value={formatTypes(detailChild.type)} /><InfoItem label="Liên hệ" value={detailChild.phone || detailChild.email} /><InfoItem label="Tên bố" value={detailChild.fatherName} /><InfoItem label="Tên mẹ" value={detailChild.motherName} /><InfoItem label="Địa chỉ" value={detailChild.address} /><InfoItem label="Xuất hóa đơn" value={detailChild.isInvoice ? 'Có' : 'Không'} /></dl><div><h4 className="mb-3 mt-0 text-sm font-bold">Các khoản phí</h4><dl className="m-0 grid gap-3 sm:grid-cols-2">{FEE_FIELDS.map(([field, label]) => <InfoItem key={field} label={label} value={formatMoney(detailChild[field])} />)}<InfoItem label="Lương giáo viên" value={formatMoney(detailChild.salaryTeacher)} /><InfoItem label="Mức phí theo giờ" value={formatMoney(detailChild.salaryOneHourForCenter)} /></dl></div></div>}
+        {detailChild && <div className="grid gap-5"><dl className="m-0 grid gap-3 sm:grid-cols-2"><InfoItem label="Ngày sinh" value={formatDate(detailChild.birthDate)} /><InfoItem label="Giới tính" value={detailChild.gender === 'male' ? 'Nam' : 'Nữ'} /><InfoItem label="Loại học" value={formatTypes(detailChild.type)} /><InfoItem label="Liên hệ" value={detailChild.phone || detailChild.email} /><InfoItem label="Tên bố" value={detailChild.fatherName} /><InfoItem label="Tên mẹ" value={detailChild.motherName} /><InfoItem label="Địa chỉ" value={detailChild.address} /><InfoItem label="Link kế hoạch" value={detailChild.planLink} /><InfoItem label="Xuất hóa đơn" value={detailChild.isInvoice ? 'Có' : 'Không'} /></dl><div><h4 className="mb-3 mt-0 text-sm font-bold">Học phí theo loại</h4><TypePricingSummary configs={detailChild.type} /></div></div>}
       </Modal>
 
       <Modal open={Boolean(editingChild)} onClose={() => !updateMutation.isPending && setEditingChild(null)} title="Chỉnh sửa thông tin" description={editingChild?.name} className="max-h-[90vh] max-w-3xl overflow-y-auto">
-        {editingChild && <form onSubmit={handleEdit} className="grid gap-5"><div className="grid gap-4 sm:grid-cols-2"><Field label="Họ và tên"><input name="name" defaultValue={editingChild.name} required className={inputClass} /></Field><Field label="Giới tính"><select name="gender" defaultValue={editingChild.gender} className={inputClass}><option value="male">Nam</option><option value="female">Nữ</option></select></Field><Field label="Ngày sinh"><input name="birthDate" type="date" defaultValue={formatDateInput(editingChild.birthDate)} className={inputClass} /></Field><Field label="Số điện thoại"><input name="phone" defaultValue={editingChild.phone} className={inputClass} /></Field><Field label="Giáo viên mặc định"><select name="teacherId" defaultValue={editingChild.teacherId || ''} className={inputClass}><option value="">Chưa chọn giáo viên</option>{(teachersQuery.data || []).filter((teacher) => teacher.active).map((teacher) => <option key={teacher._id} value={teacher._id}>{teacher.name}</option>)}</select></Field><Field label="Email"><input name="email" type="email" defaultValue={editingChild.email} className={inputClass} /></Field><fieldset className="grid gap-2 sm:col-span-2"><legend className="mb-1 text-sm font-semibold">Loại trẻ</legend><div className="flex flex-wrap gap-2">{CHILD_TYPES.map(([value, label]) => <label key={value} className="flex items-center gap-2 rounded-xl border border-border bg-app-background px-3 py-2 text-sm font-medium"><input name="type" type="checkbox" value={value} defaultChecked={(Array.isArray(editingChild.type) ? editingChild.type : [editingChild.type]).includes(value)} />{label}</label>)}</div></fieldset></div><div><h4 className="mb-3 mt-0 text-sm font-bold">Các khoản phí</h4><div className="grid gap-4 sm:grid-cols-2">{FEE_FIELDS.map(([field, label]) => <Field key={field} label={label}><input name={field} type="number" min="0" step="1000" defaultValue={editingChild[field]} className={inputClass} /></Field>)}<Field label="Lương giáo viên"><input name="salaryTeacher" type="number" min="0" step="1000" defaultValue={editingChild.salaryTeacher} className={inputClass} /></Field></div></div><div className="flex justify-end gap-2 border-t border-border pt-4"><Button type="button" variant="secondary" onClick={() => setEditingChild(null)} disabled={updateMutation.isPending}>Hủy</Button><Button type="submit" disabled={updateMutation.isPending}>{updateMutation.isPending && <Loader2 size={16} className="spin" />}Lưu thay đổi</Button></div></form>}
+        {editingChild && <form onSubmit={handleEdit} className="grid gap-5"><div className="grid gap-4 sm:grid-cols-2"><Field label="Họ và tên"><input name="name" defaultValue={editingChild.name} required className={inputClass} /></Field><Field label="Giới tính"><select name="gender" defaultValue={editingChild.gender} className={inputClass}><option value="male">Nam</option><option value="female">Nữ</option></select></Field><Field label="Ngày sinh"><input name="birthDate" type="date" defaultValue={formatDateInput(editingChild.birthDate)} className={inputClass} /></Field><Field label="Số điện thoại"><input name="phone" defaultValue={editingChild.phone} className={inputClass} /></Field><Field label="Email"><input name="email" type="email" defaultValue={editingChild.email} className={inputClass} /></Field><Field label="Link kế hoạch"><input name="planLink" type="url" defaultValue={editingChild.planLink} placeholder="https://..." className={inputClass} /></Field><ChildTypeEditor initial={editingChild.type} teachers={teachersQuery.data || []} /><Field label="Số tiền hóa đơn"><input name="invoiceAmount" type="number" min="0" step="1000" defaultValue={editingChild.invoiceAmount} className={inputClass} /></Field></div><div className="flex justify-end gap-2 border-t border-border pt-4"><Button type="button" variant="secondary" onClick={() => setEditingChild(null)} disabled={updateMutation.isPending}>Hủy</Button><Button type="submit" disabled={updateMutation.isPending}>{updateMutation.isPending && <Loader2 size={16} className="spin" />}Lưu thay đổi</Button></div></form>}
       </Modal>
     </div>
   )

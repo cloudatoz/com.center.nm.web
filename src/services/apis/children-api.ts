@@ -1,6 +1,23 @@
 import { z } from 'zod'
 import { ApiContractError, apiClient, unwrapPayload } from './api-client'
 
+export const childTypeCodeSchema = z.enum([
+  'CA_NGAY', 'CA_NHAN', 'TAI_NHA', 'SHADOW',
+  'CA_NHAN_DRAW', 'CA_NHAN_LANGUAGE', 'CA_NHAN_MOVEMENT',
+])
+export const childTypeConfigSchema = z.object({
+  type: childTypeCodeSchema,
+  price: z.number().optional().default(0),
+  prices: z.object({
+    tuition: z.number().optional().default(0),
+    csvc: z.number().optional().default(0),
+    meal: z.number().optional().default(0),
+  }).optional().default({ tuition: 0, csvc: 0, meal: 0 }),
+  teacherId: z.coerce.string().optional().nullable(),
+  teacherName: z.string().optional().default(''),
+  teacherPrice: z.number().optional().default(0),
+})
+
 const childSchema = z.object({
   _id: z.coerce.string(),
   order: z.number().optional().default(0),
@@ -14,22 +31,15 @@ const childSchema = z.object({
   email: z.string().optional().default(''),
   address: z.string().optional().default(''),
   description: z.string().optional().default(''),
-  type: z.union([z.array(z.string()), z.string()]).optional().default([]),
-  tuitionFee: z.number().optional().default(0),
-  salaryTeacher: z.number().optional().default(0),
-  teacherId: z.coerce.string().optional().nullable(),
-  teacherName: z.string().optional().default(''),
-  mealFee: z.number().optional().default(0),
-  csvcFee: z.number().optional().default(0),
-  drawingFee: z.number().optional().default(0),
-  languageFee: z.number().optional().default(0),
-  movementFee: z.number().optional().default(0),
-  salaryOneHourForCenter: z.number().optional().default(0),
+  planLink: z.string().optional().default(''),
+  type: z.array(childTypeConfigSchema).default([]),
   invoiceAmount: z.number().optional().default(0),
   isInvoice: z.boolean().optional().default(false),
 })
 
 export type Child = z.infer<typeof childSchema>
+export type ChildTypeCode = z.infer<typeof childTypeCodeSchema>
+export type ChildTypeConfig = z.infer<typeof childTypeConfigSchema>
 export type CreateChildInput = Partial<Omit<Child, '_id'>> & Pick<Child, 'name' | 'gender' | 'avatar' | 'type'>
 
 export async function getChildren(): Promise<Child[]> {
