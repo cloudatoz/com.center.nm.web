@@ -15,8 +15,6 @@ import { type Child, type ChildTypeCode, getChildren, updateChild } from '@/serv
 import { getTeachers } from '@/services/apis/teachers-api'
 import { ChildTypeEditor, readTypeConfigs } from './child-type-editor'
 
-type TypeFilter = AttendanceType | 'ALL'
-
 const MONTHS = Array.from({ length: 12 }, (_, index) => index + 1)
 const YEARS = Array.from(
   { length: new Date().getFullYear() - 2019 + 2 },
@@ -102,11 +100,10 @@ function attendanceTotals(attendance: MonthlyAttendance) {
 export default function StudentHistoryPage() {
   const queryClient = useQueryClient()
   const [month, setMonth] = useState(currentMonth)
-  const [type, setType] = useState<TypeFilter>('ALL')
+  const type = 'ALL' as const
   const [viewMode, setViewMode] = useState<'table' | 'calendar'>('calendar')
   const [selectedChildIds, setSelectedChildIds] = useState<Set<string>>(new Set())
   const [isChildPickerCollapsed, setIsChildPickerCollapsed] = useState(false)
-  const [statusMenuChildId, setStatusMenuChildId] = useState('')
   const [teacherFilter, setTeacherFilter] = useState('')
   const [editingDay, setEditingDay] = useState<{ attendanceId: string; childId: string; attendanceType: AttendanceType; date: string; day: MonthlyAttendance['days'][number]; defaultTeacherId?: string | null } | null>(null)
   const [editSpendTime, setEditSpendTime] = useState('1')
@@ -230,24 +227,26 @@ export default function StudentHistoryPage() {
     onError: (error) => toast.error(error instanceof Error ? error.message : 'Không thể cập nhật trẻ'),
   })
   const quickStatusMutation = useMutation({
-    mutationFn: async ({ child, status }: { child: Child; status: 'NOT_COMPLETED' | 'COMPLETED' | 'SENT' }) => {
-      const rows = (attendanceQuery.data || []).filter((row) => (typeof row.children === 'string' ? row.children : row.children._id) === child._id)
+    mutationFn: async ({ children, status }: { children: Child[]; status: 'NOT_COMPLETED' | 'COMPLETED' | 'SENT' }) => {
+      const childIds = new Set(children.map((child) => child._id))
+      const rows = (attendanceQuery.data || []).filter((row) => childIds.has(typeof row.children === 'string' ? row.children : row.children._id))
       if (status !== 'SENT' && rows.length === 0) throw new Error('Trẻ chưa có bảng điểm danh trong tháng này')
       const updatedRows = status === 'SENT' ? [] : await Promise.all(rows.map((row) => setAttendanceCompleted(row._id, status === 'COMPLETED')))
-      const sentMonths = child.isSend || []
-      const nextSentMonths = status === 'SENT'
-        ? [...new Set([...sentMonths, month])].sort()
-        : sentMonths.filter((item) => item !== month)
-      const updatedChild = nextSentMonths.length === sentMonths.length && nextSentMonths.every((item, index) => item === sentMonths[index])
-        ? child
-        : await updateChild(child._id, { isSend: nextSentMonths })
-      return { updatedRows, updatedChild, status }
+      const updatedChildren = await Promise.all(children.map(async (child) => {
+        const sentMonths = child.isSend || []
+        const nextSentMonths = status === 'SENT'
+          ? [...new Set([...sentMonths, month])].sort()
+          : sentMonths.filter((item) => item !== month)
+        return nextSentMonths.length === sentMonths.length && nextSentMonths.every((item, index) => item === sentMonths[index])
+          ? child
+          : updateChild(child._id, { isSend: nextSentMonths })
+      }))
+      return { updatedRows, updatedChildren, status, count: children.length }
     },
-    onSuccess: ({ updatedRows, updatedChild, status }) => {
+    onSuccess: ({ updatedRows, updatedChildren, status, count }) => {
       updatedRows.forEach(updateCachedAttendance)
-      updateCachedChild(updatedChild)
-      setStatusMenuChildId('')
-      toast.success(status === 'SENT' ? 'Đã đánh dấu gửi phụ huynh' : status === 'COMPLETED' ? 'Đã hoàn thành điểm danh' : 'Đã chuyển về chưa điểm danh')
+      updatedChildren.forEach(updateCachedChild)
+      toast.success(`${status === 'SENT' ? 'Đã đánh dấu gửi phụ huynh' : status === 'COMPLETED' ? 'Đã hoàn thành điểm danh' : 'Đã chuyển về chưa điểm danh'} cho ${count} trẻ`)
     },
     onError: (error) => toast.error(error instanceof Error ? error.message : 'Không thể cập nhật trạng thái'),
   })
@@ -335,7 +334,7 @@ export default function StudentHistoryPage() {
         }
       })
   }, [attendanceQuery.data, childrenQuery.data, month])
-  const quickStatusChild = childTiles.find(({ child }) => child._id === statusMenuChildId)?.child
+  const quickStatusChildren = childTiles.filter(({ child }) => selectedChildIds.has(child._id)).map(({ child }) => child)
   const historyGroups = useMemo(() => {
     const groups = new Map<string, MonthlyAttendance[]>()
     for (const row of historyRows) {
@@ -464,7 +463,7 @@ export default function StudentHistoryPage() {
         <CardHeader
           title={`Lịch sử học Tháng ${selectedMonth}/${selectedYear}`}
           description={selectedChildIds.size > 0 ? `${historyRows.length} bảng điểm danh của ${selectedChildIds.size} học sinh đã chọn` : 'Chọn học sinh để xem lịch sử học'}
-          action={<div className="flex rounded-xl border border-border bg-surface-muted p-1"><Button type="button" size="sm" variant={viewMode === 'table' ? 'primary' : 'ghost'} onClick={() => setViewMode('table')}><Table2 size={14} />Dạng bảng</Button><Button type="button" size="sm" variant={viewMode === 'calendar' ? 'primary' : 'ghost'} onClick={() => setViewMode('calendar')}><CalendarDays size={14} />Dạng lịch</Button></div>}
+          action={<div className="grid w-full grid-cols-2 rounded-xl border border-border bg-surface-muted p-1 sm:flex sm:w-auto"><Button type="button" size="sm" className="w-full justify-center whitespace-nowrap sm:w-auto" variant={viewMode === 'table' ? 'primary' : 'ghost'} onClick={() => setViewMode('table')}><Table2 size={14} className="shrink-0" />Dạng bảng</Button><Button type="button" size="sm" className="w-full justify-center whitespace-nowrap sm:w-auto" variant={viewMode === 'calendar' ? 'primary' : 'ghost'} onClick={() => setViewMode('calendar')}><CalendarDays size={14} className="shrink-0" />Dạng lịch</Button></div>}
         />
         <div className="flex flex-wrap gap-3 border-b border-border p-4 sm:px-6">
           <label className="grid gap-1.5 text-xs font-semibold text-muted">
@@ -477,16 +476,6 @@ export default function StudentHistoryPage() {
             Năm
             <select value={selectedYear} onChange={(event) => setMonth(`${event.target.value}-${String(selectedMonth).padStart(2, '0')}`)} className="h-10 rounded-xl border border-border bg-surface px-3 text-sm font-medium text-text-main outline-none focus:border-primary">
               {YEARS.map((value) => <option key={value} value={value}>Năm {value}</option>)}
-            </select>
-          </label>
-          <label className="grid gap-1.5 text-xs font-semibold text-muted">
-            Loại học
-            <select value={type} onChange={(event) => setType(event.target.value as TypeFilter)} className="h-10 rounded-xl border border-border bg-surface px-3 text-sm font-medium text-text-main outline-none focus:border-primary">
-              <option value="ALL">Tất cả loại học</option>
-              <option value="THEO_BUOI">Cá nhân</option>
-              <option value="CA_NGAY">Cả ngày</option>
-              <option value="TAI_NHA">Tại nhà</option>
-              <option value="SHADOW">Shadow</option>
             </select>
           </label>
           <label className="grid gap-1.5 text-xs font-semibold text-muted">
@@ -508,16 +497,16 @@ export default function StudentHistoryPage() {
               <span className="inline-flex items-center gap-1.5"><i className="h-3.5 w-3.5 rounded border border-blue-400 bg-blue-100" />Đã gửi PH</span>
             </div>
           <div className="grid min-h-12 grid-cols-3 items-center gap-1.5 rounded-lg border border-blue-200 bg-blue-50 p-2 sm:flex sm:flex-wrap dark:border-blue-500/40 dark:bg-blue-500/10">
-            {quickStatusChild ? <><span className="col-span-3 min-w-0 truncate text-xs font-semibold text-text-main sm:mr-auto">{quickStatusChild.name}</span>
-              <Button type="button" size="sm" variant="secondary" disabled={quickStatusMutation.isPending} className="h-auto min-h-8 min-w-0 whitespace-normal border-red-400 bg-white px-1 text-center text-[10px] leading-tight text-slate-900 hover:bg-red-50 sm:w-auto sm:px-3 sm:text-sm dark:border-red-500/60 dark:bg-surface dark:text-slate-100 dark:hover:bg-red-500/10" onClick={() => quickStatusMutation.mutate({ child: quickStatusChild, status: 'NOT_COMPLETED' })}><XCircle size={13} className="shrink-0" />Chưa điểm danh</Button>
-              <Button type="button" size="sm" variant="secondary" disabled={quickStatusMutation.isPending} className="h-auto min-h-8 min-w-0 whitespace-normal border-emerald-400 bg-emerald-100 px-1 text-center text-[10px] leading-tight text-emerald-800 sm:w-auto sm:px-3 sm:text-sm" onClick={() => quickStatusMutation.mutate({ child: quickStatusChild, status: 'COMPLETED' })}><CheckCircle2 size={13} className="shrink-0" />Đã điểm danh</Button>
-              <Button type="button" size="sm" variant="secondary" disabled={quickStatusMutation.isPending} className="h-auto min-h-8 min-w-0 whitespace-normal border-blue-400 bg-blue-100 px-1 text-center text-[10px] leading-tight text-blue-800 sm:w-auto sm:px-3 sm:text-sm" onClick={() => quickStatusMutation.mutate({ child: quickStatusChild, status: 'SENT' })}><Send size={13} className="shrink-0" />Đã gửi PH</Button></> : <span className="col-span-3 text-xs text-muted">Bấm vào tên trẻ để chọn và đổi trạng thái nhanh.</span>}
+            {quickStatusChildren.length > 0 ? <><span className="col-span-3 min-w-0 truncate text-xs font-semibold text-text-main sm:mr-auto">Cập nhật {quickStatusChildren.length} trẻ đã chọn</span>
+              <Button type="button" size="sm" variant="secondary" disabled={quickStatusMutation.isPending} className="h-auto min-h-8 min-w-0 whitespace-normal border-red-400 bg-white px-1 text-center text-[10px] leading-tight text-slate-900 hover:bg-red-50 sm:w-auto sm:px-3 sm:text-sm dark:border-red-500/60 dark:bg-surface dark:text-slate-100 dark:hover:bg-red-500/10" onClick={() => quickStatusMutation.mutate({ children: quickStatusChildren, status: 'NOT_COMPLETED' })}><XCircle size={13} className="shrink-0" />Chưa điểm danh</Button>
+              <Button type="button" size="sm" variant="secondary" disabled={quickStatusMutation.isPending} className="h-auto min-h-8 min-w-0 whitespace-normal border-emerald-400 bg-emerald-100 px-1 text-center text-[10px] leading-tight text-emerald-800 sm:w-auto sm:px-3 sm:text-sm" onClick={() => quickStatusMutation.mutate({ children: quickStatusChildren, status: 'COMPLETED' })}><CheckCircle2 size={13} className="shrink-0" />Đã điểm danh</Button>
+              <Button type="button" size="sm" variant="secondary" disabled={quickStatusMutation.isPending} className="h-auto min-h-8 min-w-0 whitespace-normal border-blue-400 bg-blue-100 px-1 text-center text-[10px] leading-tight text-blue-800 sm:w-auto sm:px-3 sm:text-sm" onClick={() => quickStatusMutation.mutate({ children: quickStatusChildren, status: 'SENT' })}><Send size={13} className="shrink-0" />Đã gửi PH</Button></> : <span className="col-span-3 text-xs text-muted">Chọn một hoặc nhiều trẻ để đổi trạng thái nhanh.</span>}
           </div>
           <div className="grid max-h-[170px] grid-cols-2 gap-2 overflow-y-auto overscroll-contain rounded-xl border border-slate-200 bg-slate-100/80 p-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-8 dark:border-slate-700 dark:bg-slate-800/60">
             {childTiles.map(({ child, isCompleted, isSent }) => <button
               key={child._id}
               type="button"
-              onClick={() => { setStatusMenuChildId(child._id); setSelectedChildIds((current) => { const next = new Set(current); if (next.has(child._id)) next.delete(child._id); else next.add(child._id); return next }) }}
+              onClick={() => setSelectedChildIds((current) => { const next = new Set(current); if (next.has(child._id)) next.delete(child._id); else next.add(child._id); return next })}
               className={`flex h-8 min-w-0 items-center justify-center rounded-lg border px-1.5 text-center text-xs font-normal leading-tight transition hover:-translate-y-0.5 hover:shadow-sm ${isSent ? 'border-blue-400 bg-blue-100 text-blue-900 dark:border-blue-500/60 dark:bg-blue-500/20 dark:text-blue-200' : isCompleted ? 'border-emerald-400 bg-emerald-100 text-emerald-900 dark:border-emerald-500/60 dark:bg-emerald-500/20 dark:text-emerald-200' : 'border-red-400 bg-white text-slate-900 dark:border-red-500/60 dark:bg-surface dark:text-slate-100'} ${selectedChildIds.has(child._id) ? 'ring-2 ring-violet-500 ring-offset-1 dark:ring-offset-surface' : ''}`}
             >{child.name}</button>)}
           </div>
@@ -620,7 +609,7 @@ export default function StudentHistoryPage() {
           </Table>
         )}
         {attendanceQuery.isSuccess && historyRows.length > 0 && viewMode === 'calendar' && (
-          <div className="grid divide-y divide-border">
+          <div className="grid divide-y-[3px] divide-blue-300 dark:divide-blue-500/50">
             {historyGroups.map(({ childId, rows }) => {
               const child = typeof rows[0].children === 'string' ? null : rows[0].children
               const childTotals = rows.reduce((total, row) => { const rowTotal = attendanceTotals(row); return { revenue: total.revenue + rowTotal.revenue, expense: total.expense + rowTotal.expense } }, { revenue: 0, expense: 0 })
@@ -705,21 +694,23 @@ export default function StudentHistoryPage() {
           </div>
         )}
       </Card>
-      <Modal open={Boolean(editingChild)} onClose={() => !updateChildMutation.isPending && setEditingChild(null)} title="Cập nhật Trẻ" description={editingChild?.name} className="max-h-[92vh] max-w-3xl overflow-y-auto">
+      <Modal open={Boolean(editingChild)} onClose={() => !updateChildMutation.isPending && setEditingChild(null)} title="Cập nhật Trẻ" description={editingChild?.name} className="max-h-[92vh] w-[calc(100vw-1rem)] max-w-5xl overflow-y-auto">
         {editingChild && <form onSubmit={submitChildUpdate} className="grid gap-5">
-          <div className="grid gap-4 sm:grid-cols-2">
-            <label className="grid gap-1.5 text-sm font-semibold">Họ và tên<input name="name" defaultValue={editingChild.name} required className="h-10 rounded-xl border border-border bg-app-background px-3 font-normal outline-none focus:border-primary" /></label>
-            <label className="grid gap-1.5 text-sm font-semibold">Giới tính<select name="gender" defaultValue={editingChild.gender} className="h-10 rounded-xl border border-border bg-app-background px-3 font-normal outline-none focus:border-primary"><option value="male">Nam</option><option value="female">Nữ</option></select></label>
-            <label className="grid gap-1.5 text-sm font-semibold">Trạng thái<select name="status" defaultValue={editingChild.status} className="h-10 rounded-xl border border-border bg-app-background px-3 font-normal outline-none focus:border-primary"><option value="DANG_HOC">Đang học</option><option value="NGHI_HOC">Đã nghỉ</option></select></label>
-            <label className="grid gap-1.5 text-sm font-semibold">Ngày nghỉ học<input name="offAt" type="date" defaultValue={formatDateInput(editingChild.offAt)} className="h-10 rounded-xl border border-border bg-app-background px-3 font-normal outline-none focus:border-primary" /></label>
-            <label className="grid gap-1.5 text-sm font-semibold">Ngày sinh<input name="birthDate" type="date" defaultValue={formatDateInput(editingChild.birthDate)} className="h-10 rounded-xl border border-border bg-app-background px-3 font-normal outline-none focus:border-primary" /></label>
-            <label className="grid gap-1.5 text-sm font-semibold">Số điện thoại<input name="phone" defaultValue={editingChild.phone} className="h-10 rounded-xl border border-border bg-app-background px-3 font-normal outline-none focus:border-primary" /></label>
-            <label className="grid gap-1.5 text-sm font-semibold sm:col-span-2">Link kế hoạch<input name="planLink" type="url" defaultValue={editingChild.planLink} placeholder="https://..." className="h-10 rounded-xl border border-border bg-app-background px-3 font-normal outline-none focus:border-primary" /></label>
-          </div>
+          <section className="grid gap-4 rounded-xl border border-border bg-surface-muted/50 p-3 sm:grid-cols-2 sm:p-4 lg:grid-cols-3">
+            <label className="grid min-w-0 content-start gap-1.5 text-sm font-semibold">Họ và tên<input name="name" defaultValue={editingChild.name} required className="h-10 w-full min-w-0 rounded-xl border border-border bg-app-background px-3 font-normal outline-none focus:border-primary" /></label>
+            <label className="grid min-w-0 content-start gap-1.5 text-sm font-semibold">Giới tính<select name="gender" defaultValue={editingChild.gender} className="h-10 w-full min-w-0 rounded-xl border border-border bg-app-background px-3 font-normal outline-none focus:border-primary"><option value="male">Nam</option><option value="female">Nữ</option></select></label>
+            <label className="grid min-w-0 content-start gap-1.5 text-sm font-semibold">Ngày sinh<input name="birthDate" type="date" defaultValue={formatDateInput(editingChild.birthDate)} className="h-10 w-full min-w-0 rounded-xl border border-border bg-app-background px-3 font-normal outline-none focus:border-primary" /></label>
+            <label className="grid min-w-0 content-start gap-1.5 text-sm font-semibold">Số điện thoại<input name="phone" defaultValue={editingChild.phone} className="h-10 w-full min-w-0 rounded-xl border border-border bg-app-background px-3 font-normal outline-none focus:border-primary" /></label>
+            <label className="grid min-w-0 content-start gap-1.5 text-sm font-semibold">Trạng thái<select name="status" defaultValue={editingChild.status} className="h-10 w-full min-w-0 rounded-xl border border-border bg-app-background px-3 font-normal outline-none focus:border-primary"><option value="DANG_HOC">Đang học</option><option value="NGHI_HOC">Đã nghỉ</option></select></label>
+            <label className="grid min-w-0 content-start gap-1.5 text-sm font-semibold">Ngày nghỉ học<input name="offAt" type="date" defaultValue={formatDateInput(editingChild.offAt)} className="h-10 w-full min-w-0 rounded-xl border border-border bg-app-background px-3 font-normal outline-none focus:border-primary" /></label>
+            <label className="grid min-w-0 content-start gap-1.5 text-sm font-semibold sm:col-span-2 lg:col-span-3">Link kế hoạch<input name="planLink" type="url" defaultValue={editingChild.planLink} placeholder="https://..." className="h-10 w-full min-w-0 rounded-xl border border-border bg-app-background px-3 font-normal outline-none focus:border-primary" /></label>
+          </section>
           <ChildTypeEditor initial={editingChild.type} teachers={teachersQuery.data || []} />
-          <label className="grid gap-1.5 text-sm font-semibold">Số tiền hóa đơn<input name="invoiceAmount" type="number" min="0" step="1000" defaultValue={editingChild.invoiceAmount} className="h-10 rounded-xl border border-border bg-app-background px-3 font-normal outline-none focus:border-primary" /></label>
-          <label className="flex items-center gap-3 rounded-xl border border-border p-3 text-sm font-semibold"><input name="isInvoice" type="checkbox" defaultChecked={editingChild.isInvoice} className="h-4 w-4 accent-primary" />Xuất hóa đơn</label>
-          <div className="flex justify-end gap-2 border-t border-border pt-4"><Button type="button" variant="secondary" disabled={updateChildMutation.isPending} onClick={() => setEditingChild(null)}>Hủy</Button><Button type="submit" disabled={updateChildMutation.isPending}>{updateChildMutation.isPending && <Loader2 size={16} className="spin" />}Lưu thay đổi</Button></div>
+          <section className="grid items-end gap-4 rounded-xl border border-border bg-surface-muted/50 p-3 sm:grid-cols-2 sm:p-4">
+            <label className="grid min-w-0 gap-1.5 text-sm font-semibold">Số tiền hóa đơn<input name="invoiceAmount" type="number" min="0" step="1000" defaultValue={editingChild.invoiceAmount} className="h-10 w-full min-w-0 rounded-xl border border-border bg-app-background px-3 font-normal outline-none focus:border-primary" /></label>
+            <label className="flex h-10 items-center gap-3 rounded-xl border border-border bg-app-background px-3 text-sm font-semibold"><input name="isInvoice" type="checkbox" defaultChecked={editingChild.isInvoice} className="h-4 w-4 accent-primary" />Xuất hóa đơn</label>
+          </section>
+          <div className="grid grid-cols-2 gap-2 border-t border-border pt-4 sm:flex sm:justify-end"><Button type="button" variant="secondary" className="w-full sm:w-auto" disabled={updateChildMutation.isPending} onClick={() => setEditingChild(null)}>Hủy</Button><Button type="submit" className="w-full sm:w-auto" disabled={updateChildMutation.isPending}>{updateChildMutation.isPending && <Loader2 size={16} className="spin" />}Lưu thay đổi</Button></div>
         </form>}
       </Modal>
       <Modal open={Boolean(findingTeacherFor)} onClose={() => !updateChildTeacherMutation.isPending && setFindingTeacherFor(null)} title="Tìm giáo viên" description={findingTeacherFor?.childName} className="max-w-lg">
