@@ -35,6 +35,7 @@ const attendanceChildSchema = z.object({
   offAt: z.string().optional().nullable(),
   type: z.array(childTypeConfigSchema).default([]),
   isInvoice: z.boolean().optional().default(false),
+  isSend: z.array(z.string()).optional().default([]),
   invoiceAmount: z.number().optional().default(3240000),
 })
 
@@ -76,10 +77,12 @@ export async function getMonthlyAttendances(month: string, type?: AttendanceType
   return parsed.data
 }
 
-export async function createAttendance(childId: string, date: string, spendTime: number, type: AttendanceType, teacherId?: string) {
+export async function createAttendance(childId: string, date: string, spendTime: number, type: AttendanceType, teacherId?: string, salaryTeacher?: number, tuitionFee?: number) {
   const response = await apiClient.post('/v1/attendance', {
     children: Number(childId), date, status: 'present', spendTime, type,
     ...(teacherId ? { teacherId: Number(teacherId) } : {}),
+    ...(salaryTeacher !== undefined ? { salaryTeacher } : {}),
+    ...(tuitionFee !== undefined ? { tuitionFee } : {}),
   })
   return parseMonthlyAttendance(response.data)
 }

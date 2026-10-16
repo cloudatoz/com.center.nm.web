@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { CalendarDays, Check, CheckCircle2, Copy, ExternalLink, FileImage, Loader2, Pencil, Search, Table2, Trash2, XCircle } from 'lucide-react'
+import { CalendarDays, Check, CheckCircle2, Copy, ExternalLink, FileImage, Loader2, Pencil, Search, Send, Table2, Trash2, XCircle } from 'lucide-react'
 import { type FormEvent, useEffect, useMemo, useRef, useState } from 'react'
 import { toBlob } from 'html-to-image'
 import { toast } from 'sonner'
@@ -215,12 +215,29 @@ export default function StudentHistoryPage() {
   })
   const updateChildMutation = useMutation({
     mutationFn: ({ id, data }: { id: string; data: Partial<Child> }) => updateChild(id, data),
-    onSuccess: (updated) => {
+    onSuccess: async (updated) => {
       updateCachedChild(updated)
+      await queryClient.invalidateQueries({ queryKey: ['children'] })
+      await queryClient.refetchQueries({ queryKey: ['student-history', month, type], type: 'active' })
       setEditingChild(null)
-      toast.success('Đã cập nhật thông tin trẻ')
+      toast.success('Đã cập nhật trẻ và tải lại Lịch sử học')
     },
     onError: (error) => toast.error(error instanceof Error ? error.message : 'Không thể cập nhật trẻ'),
+  })
+  const sendMonthMutation = useMutation({
+    mutationFn: ({ child, sent }: { child: Child; sent: boolean }) => {
+      const months = child.isSend || []
+      const isSend = sent
+        ? months.filter((item) => item !== month)
+        : [...new Set([...months, month])].sort()
+      return updateChild(child._id, { isSend })
+    },
+    onSuccess: async (updated) => {
+      updateCachedChild(updated)
+      await queryClient.invalidateQueries({ queryKey: ['children'] })
+      toast.success(updated.isSend.includes(month) ? `Đã đánh dấu gửi tháng ${selectedMonth}/${selectedYear}` : `Đã bỏ đánh dấu gửi tháng ${selectedMonth}/${selectedYear}`)
+    },
+    onError: (error) => toast.error(error instanceof Error ? error.message : 'Không thể cập nhật trạng thái gửi'),
   })
   const submitChildUpdate = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -521,7 +538,7 @@ export default function StudentHistoryPage() {
                     <TableCell className="text-center">
                       <strong className="mb-1 block max-w-32 whitespace-normal rounded-lg border border-blue-200 bg-blue-50/60 px-2 py-1 text-xs leading-snug text-text-main dark:border-blue-500/30 dark:bg-blue-500/10 sm:hidden">{child?.name || `Trẻ #${attendance.children}`}</strong>
                       <span className={`inline-flex shrink-0 whitespace-nowrap rounded-full px-2 py-1 text-[10px] font-bold ${isFullDayType(attendance.type) ? 'bg-blue-50 text-blue-700 dark:bg-blue-500/15 dark:text-blue-300' : 'bg-purple-50 text-purple-700 dark:bg-purple-500/15 dark:text-purple-300'}`}>{attendanceTypeLabel(attendance.type)}</span>
-                      {needsTeacher(attendance.type) ? <div className="mx-auto mt-1 grid max-w-40 gap-0.5 text-[10px] text-muted"><span>GV: <strong className="text-blue-600 dark:text-blue-400">{pricingConfig?.teacherName || 'Chưa cập nhật'}</strong></span>{child && <Button type="button" size="sm" variant="secondary" className={`mx-auto my-1 ${FIND_TEACHER_BUTTON_CLASS}`} onClick={() => { setFindingTeacherFor({ child: child as Child, childName: child.name || `Trẻ #${childId}`, typeCode: pricingConfig?.type || lessonConfigType(sessionSnapshot?.lessonType), teacherId: pricingConfig?.teacherId }); setTeacherSearch(''); setTeacherHourlySalary(String(pricingConfig?.teacherPrice || 130000)); setSelectedTeacherId(pricingConfig?.teacherId || '') }}><Search size={12} />Tìm GV</Button>}<span>Lương GV 1h: <strong className="text-blue-600 dark:text-blue-400">{formatMoney(sessionSnapshot?.salaryTeacher || pricingConfig?.teacherPrice || 0)}</strong></span><span>Học phí 1h: <strong className="text-emerald-600 dark:text-emerald-300">{formatMoney(sessionSnapshot?.tuitionFee || pricingConfig?.price || 0)}</strong></span></div> : <span className="mx-auto mt-1 block text-[10px] text-muted">Học phí tháng: <strong className="text-red-600 dark:text-red-400">{formatMoney(pricingConfig?.prices.tuition || 0)}</strong><span className="block">CSVC: {formatMoney(pricingConfig?.prices.csvc || 0)} · Ăn: {formatMoney(pricingConfig?.prices.meal || 0)}</span></span>}
+                      {needsTeacher(attendance.type) ? <div className="mx-auto mt-1 grid max-w-40 gap-0.5 text-[10px] text-muted"><span>GV: <strong className="text-blue-600 dark:text-blue-400">{pricingConfig?.teacherName || 'Chưa cập nhật'}</strong></span>{child && <Button type="button" size="sm" variant="secondary" className={`mx-auto my-1 ${FIND_TEACHER_BUTTON_CLASS}`} onClick={() => { setFindingTeacherFor({ child: child as Child, childName: child.name || `Trẻ #${childId}`, typeCode: pricingConfig?.type || lessonConfigType(sessionSnapshot?.lessonType), teacherId: pricingConfig?.teacherId }); setTeacherSearch(''); setTeacherHourlySalary(String(pricingConfig?.teacherPrice || 130000)); setSelectedTeacherId(pricingConfig?.teacherId || '') }}><Search size={12} />Tìm GV</Button>}<span>Lương GV 1h: <strong className="text-blue-600 dark:text-blue-400">{formatMoney(sessionSnapshot?.salaryTeacher || pricingConfig?.teacherPrice || 0)}</strong></span><span>Học phí: <strong className="text-emerald-600 dark:text-emerald-300">{formatMoney(sessionSnapshot?.tuitionFee || pricingConfig?.price || 0)}</strong></span></div> : <span className="mx-auto mt-1 block text-[10px] text-muted">Học phí tháng: <strong className="text-red-600 dark:text-red-400">{formatMoney(pricingConfig?.prices.tuition || 0)}</strong><span className="block">CSVC: {formatMoney(pricingConfig?.prices.csvc || 0)} · Ăn: {formatMoney(pricingConfig?.prices.meal || 0)}</span></span>}
                       <span className="mx-auto mt-1 block whitespace-nowrap text-[10px] font-semibold text-emerald-600 dark:text-emerald-300">Thu: {formatMoney(rowTotals.revenue)}</span>
                       <span className="mx-auto block whitespace-nowrap text-[10px] font-semibold text-red-600 dark:text-red-300">Chi: {formatMoney(rowTotals.expense)}</span>
                       {attendance.isCompleted && <span className="mx-auto mt-1 flex w-fit items-center gap-1 text-[10px] font-bold text-emerald-600 dark:text-emerald-300"><CheckCircle2 size={10} />Hoàn tất</span>}
@@ -568,6 +585,7 @@ export default function StudentHistoryPage() {
                       <Button type="button" size="sm" variant="secondary" onClick={() => openPlanLink(child?.planLink)}><ExternalLink size={13} />Kế hoạch</Button>
                       <Button type="button" size="sm" variant="secondary" onClick={() => setReceiptGroup({ childId, rows })}><FileImage size={13} />Xuất phiếu</Button>
                       <AttendanceStatusList rows={rows} />
+                      {child && <Button type="button" size="sm" variant="secondary" disabled={sendMonthMutation.isPending} className={child.isSend.includes(month) ? 'border-emerald-300 bg-emerald-50 text-emerald-700 dark:border-emerald-500/40 dark:bg-emerald-500/15 dark:text-emerald-300' : undefined} onClick={() => sendMonthMutation.mutate({ child: child as Child, sent: child.isSend.includes(month) })}>{sendMonthMutation.isPending ? <Loader2 size={13} className="spin" /> : <Send size={13} />}{child.isSend.includes(month) ? `Đã gửi T${selectedMonth}` : `Đánh dấu đã gửi T${selectedMonth}`}</Button>}
                     </div>
                   </div>
                   <div className="grid gap-3 p-3">
@@ -579,7 +597,10 @@ export default function StudentHistoryPage() {
                           <Button type="button" size="sm" variant="secondary" onClick={() => openPlanLink(child?.planLink)}><ExternalLink size={13} />Kế hoạch</Button>
                           <Button type="button" size="sm" variant="secondary" onClick={() => setReceiptGroup({ childId, rows })}><FileImage size={13} />Xuất phiếu</Button>
                         </div>
-                        <AttendanceStatusList rows={rows} />
+                        <div className="grid gap-2">
+                          <AttendanceStatusList rows={rows} />
+                          {child && <Button type="button" size="sm" variant="secondary" disabled={sendMonthMutation.isPending} className={child.isSend.includes(month) ? 'border-emerald-300 bg-emerald-50 text-emerald-700 dark:border-emerald-500/40 dark:bg-emerald-500/15 dark:text-emerald-300' : undefined} onClick={() => sendMonthMutation.mutate({ child: child as Child, sent: child.isSend.includes(month) })}>{sendMonthMutation.isPending ? <Loader2 size={13} className="spin" /> : <Send size={13} />}{child.isSend.includes(month) ? `Đã gửi T${selectedMonth}` : `Đánh dấu đã gửi T${selectedMonth}`}</Button>}
+                        </div>
                       </div>
                     </div>
                     {rows.map((attendance) => {
@@ -601,11 +622,11 @@ export default function StudentHistoryPage() {
                           <div className="grid gap-1 sm:flex sm:flex-wrap sm:items-center sm:gap-2">
                             <span className={`hidden w-fit shrink-0 whitespace-nowrap rounded-full px-2 py-1 text-[10px] font-bold sm:inline-flex ${isFullDayType(attendance.type) ? 'bg-blue-50 text-blue-700 dark:bg-blue-500/15 dark:text-blue-300' : 'bg-purple-50 text-purple-700 dark:bg-purple-500/15 dark:text-purple-300'}`}>{attendanceTypeLabel(attendance.type)}</span>
                             <span className="hidden flex-wrap items-center gap-x-3 text-xs font-semibold sm:flex"><span className="text-emerald-600">Thu: {formatMoney(rowTotals.revenue)}</span><span className="text-red-600">Chi: {formatMoney(rowTotals.expense)}</span></span>
-                            <span className={`hidden w-fit items-center gap-1 text-xs font-bold sm:inline-flex ${attendance.isCompleted ? 'text-emerald-600' : 'text-red-600'}`}>{attendance.isCompleted ? <CheckCircle2 size={13} /> : <XCircle size={13} />}{attendance.isCompleted ? 'Hoàn tất' : 'Chưa điểm danh'}</span>
+                            <span className={`hidden w-fit items-center gap-1 text-xs font-bold sm:inline-flex ${attendance.isCompleted ? 'text-emerald-600' : 'text-red-600'}`}>{attendance.isCompleted ? <CheckCircle2 size={13} /> : <XCircle size={13} />}{attendance.isCompleted ? 'Đã hoàn thành' : 'Chưa điểm danh'}</span>
                           </div>
                           <div className="hidden sm:block">{editingIds.has(attendance._id) ? <Button type="button" size="sm" variant="secondary" className="complete-attention h-7 px-2 text-sm" disabled={finishEditMutation.isPending || dayMutation.isPending} onClick={() => finishEditMutation.mutate(attendance._id)}><CheckCircle2 size={13} />Hoàn tất điểm danh</Button> : <Button type="button" size="sm" variant="secondary" className="edit-attention h-7 px-2 text-sm" disabled={editModeMutation.isPending} onClick={() => editModeMutation.mutate({ id: attendance._id, completed: attendance.isCompleted })}><Pencil size={13} />Sửa</Button>}</div>
                         </div>
-                        {needsTeacher(attendance.type) ? <div className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg bg-purple-50/70 px-2.5 py-2 text-xs dark:bg-purple-500/10"><span>GV: <strong className="text-blue-600 dark:text-blue-400">{pricingConfig?.teacherName || 'Chưa cập nhật'}</strong></span>{child && <Button type="button" size="sm" variant="secondary" className={FIND_TEACHER_BUTTON_CLASS} onClick={() => { setFindingTeacherFor({ child: child as Child, childName: child.name || `Trẻ #${childId}`, typeCode: pricingConfig?.type || lessonConfigType(latestSnapshot?.lessonType), teacherId: pricingConfig?.teacherId }); setTeacherSearch(''); setTeacherHourlySalary(String(pricingConfig?.teacherPrice || 130000)); setSelectedTeacherId(pricingConfig?.teacherId || '') }}><Search size={12} />Tìm GV</Button>}<span>Lương GV 1h: <strong className="text-blue-600 dark:text-blue-400">{formatMoney(latestSnapshot?.salaryTeacher || pricingConfig?.teacherPrice || 0)}</strong></span><span>Học phí 1h: <strong className="text-emerald-600 dark:text-emerald-300">{formatMoney(latestSnapshot?.tuitionFee || pricingConfig?.price || 0)}</strong></span></div> : <div className="rounded-lg bg-blue-50/70 px-2.5 py-2 text-xs dark:bg-blue-500/10">Học phí tháng: <strong className="text-red-600 dark:text-red-400">{formatMoney(pricingConfig?.prices.tuition || 0)}</strong><span className="ml-2">CSVC: {formatMoney(pricingConfig?.prices.csvc || 0)} · Ăn: {formatMoney(pricingConfig?.prices.meal || 0)}</span></div>}
+                        {needsTeacher(attendance.type) ? <div className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg bg-purple-50/70 px-2.5 py-2 text-xs dark:bg-purple-500/10"><span>GV: <strong className="text-blue-600 dark:text-blue-400">{pricingConfig?.teacherName || 'Chưa cập nhật'}</strong></span>{child && <Button type="button" size="sm" variant="secondary" className={FIND_TEACHER_BUTTON_CLASS} onClick={() => { setFindingTeacherFor({ child: child as Child, childName: child.name || `Trẻ #${childId}`, typeCode: pricingConfig?.type || lessonConfigType(latestSnapshot?.lessonType), teacherId: pricingConfig?.teacherId }); setTeacherSearch(''); setTeacherHourlySalary(String(pricingConfig?.teacherPrice || 130000)); setSelectedTeacherId(pricingConfig?.teacherId || '') }}><Search size={12} />Tìm GV</Button>}<span>Lương GV 1h: <strong className="text-blue-600 dark:text-blue-400">{formatMoney(latestSnapshot?.salaryTeacher || pricingConfig?.teacherPrice || 0)}</strong></span><span>Học phí: <strong className="text-emerald-600 dark:text-emerald-300">{formatMoney(latestSnapshot?.tuitionFee || pricingConfig?.price || 0)}</strong></span></div> : <div className="rounded-lg bg-blue-50/70 px-2.5 py-2 text-xs dark:bg-blue-500/10">Học phí tháng: <strong className="text-red-600 dark:text-red-400">{formatMoney(pricingConfig?.prices.tuition || 0)}</strong><span className="ml-2">CSVC: {formatMoney(pricingConfig?.prices.csvc || 0)} · Ăn: {formatMoney(pricingConfig?.prices.meal || 0)}</span></div>}
                         <div className="flex justify-end sm:hidden">{editingIds.has(attendance._id) ? <Button type="button" size="sm" variant="secondary" className="complete-attention w-full" disabled={finishEditMutation.isPending || dayMutation.isPending} onClick={() => finishEditMutation.mutate(attendance._id)}><CheckCircle2 size={13} />Hoàn tất điểm danh</Button> : <Button type="button" size="sm" variant="secondary" className="edit-attention w-full" disabled={editModeMutation.isPending} onClick={() => editModeMutation.mutate({ id: attendance._id, completed: attendance.isCompleted })}><Pencil size={13} />Sửa</Button>}</div>
                         <div className="grid min-w-0 grid-cols-7 gap-0.5 sm:gap-1">{CALENDAR_WEEKDAYS.map((weekday, weekdayIndex) => <div key={weekday} className={`min-w-0 border-b border-r border-border px-0.5 py-1.5 text-center text-[11px] font-bold text-muted last:border-r-0 sm:px-1 sm:text-[13px] lg:text-sm ${weekdayIndex >= 5 ? 'bg-slate-200/80 dark:bg-slate-700/70' : 'bg-amber-100/90 dark:bg-amber-500/20'}`}>{weekday}</div>)}
                           {calendarDays.map((day, index) => {

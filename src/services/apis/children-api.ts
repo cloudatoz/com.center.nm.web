@@ -38,6 +38,7 @@ const childSchema = z.object({
   type: z.array(childTypeConfigSchema).default([]),
   invoiceAmount: z.number().optional().default(0),
   isInvoice: z.boolean().optional().default(false),
+  isSend: z.array(z.string()).optional().default([]),
 })
 
 export type Child = z.infer<typeof childSchema>

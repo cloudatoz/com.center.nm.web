@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { CalendarCheck, CheckCircle2, Loader2, Pencil } from 'lucide-react'
+import { CalendarCheck, CheckCircle2, Loader2, Pencil, XCircle } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { toast } from 'sonner'
 import { Modal } from '@/components/ui/modal'
@@ -28,6 +28,8 @@ export function AttendanceModal({ child, initialType, initialMonth, onClose }: {
   const [spendTime, setSpendTime] = useState(1)
   const [attendanceType, setAttendanceType] = useState<AttendanceType>('THEO_BUOI')
   const [teacherId, setTeacherId] = useState('')
+  const [salaryTeacher, setSalaryTeacher] = useState('0')
+  const [tuitionFee, setTuitionFee] = useState('0')
   const [selectedYear, selectedMonth] = month.split('-').map(Number)
 
   useEffect(() => {
@@ -37,7 +39,9 @@ export function AttendanceModal({ child, initialType, initialMonth, onClose }: {
   const pricingConfig = configForAttendance(child, attendanceType)
   useEffect(() => {
     setTeacherId(pricingConfig?.teacherId || '')
-  }, [pricingConfig?.teacherId])
+    setSalaryTeacher(String(pricingConfig?.teacherPrice || 0))
+    setTuitionFee(String(pricingConfig?.price || 0))
+  }, [pricingConfig?.price, pricingConfig?.teacherId, pricingConfig?.teacherPrice])
   const queryKey = ['attendance', child?._id, month, attendanceType]
   const attendanceQuery = useQuery({
     queryKey,
@@ -52,7 +56,7 @@ export function AttendanceModal({ child, initialType, initialMonth, onClose }: {
       if (attended) await deleteAttendanceDay(child._id, date, attendanceType)
       else {
         if (needsTeacher(attendanceType) && !teacherId) throw new Error('Vui lòng chọn giáo viên')
-        await createAttendance(child._id, date, attendanceType === 'CA_NGAY' ? 0 : spendTime, attendanceType, teacherId)
+        await createAttendance(child._id, date, isFullDayType(attendanceType) ? 0 : spendTime, attendanceType, teacherId, Number(salaryTeacher) || 0, Number(tuitionFee) || 0)
       }
     },
     onSuccess: async (_, variables) => {
@@ -66,7 +70,7 @@ export function AttendanceModal({ child, initialType, initialMonth, onClose }: {
     onSuccess: async (_, isCompleted) => {
       await queryClient.invalidateQueries({ queryKey })
       await queryClient.invalidateQueries({ queryKey: ['attendance-status', month] })
-      toast.success(isCompleted ? 'Đã hoàn tất điểm danh tháng' : 'Đã mở lại để chỉnh sửa')
+      toast.success(isCompleted ? 'Đã hoàn thành điểm danh tháng' : 'Đã mở lại để chỉnh sửa')
     },
     onError: (error) => toast.error(error instanceof Error ? error.message : 'Không thể hoàn tất điểm danh'),
   })
@@ -85,18 +89,22 @@ export function AttendanceModal({ child, initialType, initialMonth, onClose }: {
   return (
     <Modal open={Boolean(child)} onClose={onClose} title={`Điểm danh - ${child?.name || ''}`} description={`Theo dõi điểm danh theo tháng · Mã trẻ ${child?._id || ''}`} className="max-h-[92vh] max-w-4xl overflow-y-auto">
       <div className="grid gap-5">
-        <div className="flex flex-col gap-3 rounded-2xl bg-surface-muted/60 p-4 sm:flex-row sm:items-end sm:justify-between">
-          <div className="flex flex-wrap gap-3">
-            <label className="grid gap-1.5 text-xs font-semibold text-muted">Tháng<select value={selectedMonth} onChange={(event) => setMonth(`${selectedYear}-${String(event.target.value).padStart(2, '0')}`)} className="h-10 rounded-xl border border-border bg-surface px-3 text-sm font-medium text-text-main outline-none focus:border-primary">{MONTHS.map((value) => <option key={value} value={value}>Tháng {value}</option>)}</select></label>
-            <label className="grid gap-1.5 text-xs font-semibold text-muted">Năm<select value={selectedYear} onChange={(event) => setMonth(`${event.target.value}-${String(selectedMonth).padStart(2, '0')}`)} className="h-10 rounded-xl border border-border bg-surface px-3 text-sm font-medium text-text-main outline-none focus:border-primary">{YEARS.map((value) => <option key={value} value={value}>Năm {value}</option>)}</select></label>
-            <label className="grid gap-1.5 text-xs font-semibold text-muted">Loại học<select value={attendanceType} onChange={(event) => setAttendanceType(event.target.value as AttendanceType)} className="h-10 rounded-xl border border-border bg-surface px-3 text-sm font-medium text-text-main outline-none focus:border-primary"><option value="THEO_BUOI">Cá nhân</option><option value="CA_NGAY">Cả ngày</option><option value="TAI_NHA">Tại nhà</option><option value="SHADOW">Shadow</option></select></label>
-            {!isFullDayType(attendanceType) && <label className="grid gap-1.5 text-xs font-semibold text-muted">Số giờ mặc định<select value={spendTime} onChange={(event) => setSpendTime(Number(event.target.value))} className="h-10 rounded-xl border border-border bg-surface px-3 text-sm font-medium text-text-main outline-none focus:border-primary"><option value={1}>1h</option><option value={1.5}>1,5h</option><option value={2}>2h</option><option value={2.5}>2,5h</option><option value={3}>3h</option></select></label>}
-            {needsTeacher(attendanceType) && <label className="grid gap-1.5 text-xs font-semibold text-muted">Giáo viên<select value={teacherId} onChange={(event) => setTeacherId(event.target.value)} className="h-10 min-w-44 rounded-xl border border-border bg-surface px-3 text-sm font-medium text-text-main outline-none focus:border-primary"><option value="">Chọn giáo viên</option>{activeTeachers.map((teacher) => <option key={teacher._id} value={teacher._id}>{teacher.name}</option>)}</select></label>}
+        <div className="grid gap-4 rounded-2xl bg-surface-muted/60 p-4">
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <label className="grid min-w-0 gap-1.5 text-xs font-semibold text-muted">Tháng<select value={selectedMonth} onChange={(event) => setMonth(`${selectedYear}-${String(event.target.value).padStart(2, '0')}`)} className="h-10 min-w-0 rounded-xl border border-border bg-surface px-3 text-sm font-medium text-text-main outline-none focus:border-primary">{MONTHS.map((value) => <option key={value} value={value}>Tháng {value}</option>)}</select></label>
+            <label className="grid min-w-0 gap-1.5 text-xs font-semibold text-muted">Năm<select value={selectedYear} onChange={(event) => setMonth(`${event.target.value}-${String(selectedMonth).padStart(2, '0')}`)} className="h-10 min-w-0 rounded-xl border border-border bg-surface px-3 text-sm font-medium text-text-main outline-none focus:border-primary">{YEARS.map((value) => <option key={value} value={value}>Năm {value}</option>)}</select></label>
+            <label className="grid min-w-0 gap-1.5 text-xs font-semibold text-muted">Loại học<select value={attendanceType} onChange={(event) => setAttendanceType(event.target.value as AttendanceType)} className="h-10 min-w-0 rounded-xl border border-border bg-surface px-3 text-sm font-medium text-text-main outline-none focus:border-primary"><option value="THEO_BUOI">Cá nhân</option><option value="CA_NGAY">Cả ngày</option><option value="TAI_NHA">Tại nhà</option><option value="SHADOW">Shadow</option></select></label>
+            {!isFullDayType(attendanceType) && <label className="grid min-w-0 gap-1.5 text-xs font-semibold text-muted">Số giờ mặc định<select value={spendTime} onChange={(event) => setSpendTime(Number(event.target.value))} className="h-10 min-w-0 rounded-xl border border-border bg-surface px-3 text-sm font-medium text-text-main outline-none focus:border-primary"><option value={1}>1h</option><option value={1.5}>1,5h</option><option value={2}>2h</option><option value={2.5}>2,5h</option><option value={3}>3h</option></select></label>}
           </div>
-          {child && <div className="text-xs font-semibold text-muted">{attendanceType === 'CA_NGAY'
-            ? `Học phí tháng: ${(pricingConfig?.prices.tuition || 0).toLocaleString('vi-VN')} đ · CSVC: ${(pricingConfig?.prices.csvc || 0).toLocaleString('vi-VN')} đ · Tiền ăn: ${(pricingConfig?.prices.meal || 0).toLocaleString('vi-VN')} đ`
-            : `Học phí 1h: ${(pricingConfig?.price || 0).toLocaleString('vi-VN')} đ · Lương GV 1h: ${(pricingConfig?.teacherPrice || 0).toLocaleString('vi-VN')} đ`}</div>}
-          <div className="flex flex-wrap items-end gap-4 text-sm"><div><span className="block text-xs text-muted">Số ngày học</span><strong className="text-lg text-primary">{attendanceQuery.data?.days.length || 0}</strong></div>{!isFullDayType(attendanceType) && <div><span className="block text-xs text-muted">Tổng thời gian</span><strong className="text-lg text-primary">{totalHours}h</strong></div>}{attendanceQuery.data?.isCompleted ? <><span className="inline-flex h-10 items-center gap-1.5 rounded-xl border border-emerald-300 bg-emerald-50 px-3 text-xs font-bold text-emerald-700 dark:border-emerald-500/40 dark:bg-emerald-500/15 dark:text-emerald-300"><CheckCircle2 size={16} />Đã hoàn tất</span><Button type="button" variant="secondary" size="compact" disabled={completeMutation.isPending} onClick={() => completeMutation.mutate(false)}>{completeMutation.isPending ? <Loader2 size={15} className="spin" /> : <Pencil size={15} />}Chỉnh sửa điểm danh</Button></> : <Button type="button" size="compact" disabled={!attendanceQuery.data || completeMutation.isPending || mutation.isPending} onClick={() => completeMutation.mutate(true)}>{completeMutation.isPending ? <Loader2 size={15} className="spin" /> : <CheckCircle2 size={15} />}Hoàn tất điểm danh</Button>}</div>
+          {needsTeacher(attendanceType) && <div className="grid gap-3 border-t border-border pt-4 sm:grid-cols-3">
+            <label className="grid min-w-0 gap-1.5 text-xs font-semibold text-muted">Giáo viên<select value={teacherId} onChange={(event) => setTeacherId(event.target.value)} className="h-10 min-w-0 rounded-xl border border-border bg-surface px-3 text-sm font-medium text-text-main outline-none focus:border-primary"><option value="">Chọn giáo viên</option>{activeTeachers.map((teacher) => <option key={teacher._id} value={teacher._id}>{teacher.name}</option>)}</select></label>
+            {!isFullDayType(attendanceType) && <label className="grid min-w-0 gap-1.5 text-xs font-semibold text-muted">Lương giáo viên<input type="number" min="0" step="1000" value={salaryTeacher} onChange={(event) => setSalaryTeacher(event.target.value)} className="h-10 min-w-0 rounded-xl border border-border bg-surface px-3 text-sm font-medium text-text-main outline-none focus:border-primary" /></label>}
+            {!isFullDayType(attendanceType) && <label className="grid min-w-0 gap-1.5 text-xs font-semibold text-muted">Học phí<input type="number" min="0" step="1000" value={tuitionFee} onChange={(event) => setTuitionFee(event.target.value)} className="h-10 min-w-0 rounded-xl border border-border bg-surface px-3 text-sm font-medium text-text-main outline-none focus:border-primary" /></label>}
+          </div>}
+          <div className="flex flex-col gap-3 border-t border-border pt-4 sm:flex-row sm:items-end sm:justify-between">
+            <div className="flex gap-6 text-sm"><div><span className="block text-xs text-muted">Số ngày học</span><strong className="text-lg text-primary">{attendanceQuery.data?.days.length || 0}</strong></div>{!isFullDayType(attendanceType) && <div><span className="block text-xs text-muted">Tổng thời gian</span><strong className="text-lg text-primary">{totalHours}h</strong></div>}</div>
+            <div className="flex flex-wrap items-center gap-2">{attendanceQuery.data?.isCompleted ? <><span className="inline-flex h-10 items-center gap-1.5 rounded-xl border border-emerald-300 bg-emerald-50 px-3 text-xs font-bold text-emerald-700 dark:border-emerald-500/40 dark:bg-emerald-500/15 dark:text-emerald-300"><CheckCircle2 size={16} />Đã hoàn thành</span><Button type="button" variant="secondary" size="compact" disabled={completeMutation.isPending} onClick={() => completeMutation.mutate(false)}>{completeMutation.isPending ? <Loader2 size={15} className="spin" /> : <Pencil size={15} />}Chỉnh sửa điểm danh</Button></> : <><span className="inline-flex h-10 items-center gap-1.5 rounded-xl border border-amber-300 bg-amber-50 px-3 text-xs font-bold text-amber-700 dark:border-amber-500/40 dark:bg-amber-500/15 dark:text-amber-300"><XCircle size={16} />Chưa điểm danh</span><Button type="button" size="compact" disabled={!attendanceQuery.data || completeMutation.isPending || mutation.isPending} onClick={() => completeMutation.mutate(true)}>{completeMutation.isPending ? <Loader2 size={15} className="spin" /> : <CheckCircle2 size={15} />}Hoàn thành điểm danh</Button></>}</div>
+          </div>
         </div>
         <div className="grid grid-cols-7 gap-1.5 sm:gap-2">
           {WEEKDAYS.map((weekday) => <div key={weekday} className="py-1 text-center text-[11px] font-bold uppercase text-muted">{weekday}</div>)}

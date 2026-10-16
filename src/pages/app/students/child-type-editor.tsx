@@ -42,7 +42,7 @@ export function ChildTypeEditor({ initial, teachers }: { initial: ChildTypeConfi
           <label className="grid gap-1.5 text-sm font-semibold">Phí CSVC<input name={`${type}.csvc`} type="number" min="0" step="1000" defaultValue={config.prices.csvc} className={inputClass} /></label>
           <label className="grid gap-1.5 text-sm font-semibold">Tiền ăn<input name={`${type}.meal`} type="number" min="0" step="1000" defaultValue={config.prices.meal} className={inputClass} /></label>
         </> : <>
-          <label className="grid gap-1.5 text-sm font-semibold">Học phí 1h<input name={`${type}.price`} type="number" min="0" step="1000" defaultValue={config.price} className={inputClass} /></label>
+          <label className="grid gap-1.5 text-sm font-semibold">Học phí<input name={`${type}.price`} type="number" min="0" step="1000" defaultValue={config.price} className={inputClass} /></label>
           <label className="grid gap-1.5 text-sm font-semibold">Giáo viên<select name={`${type}.teacherId`} defaultValue={config.teacherId || ''} className={inputClass}><option value="">Chưa chọn giáo viên</option>{teachers.filter((teacher) => teacher.active).map((teacher) => <option key={teacher._id} value={teacher._id}>{teacher.name}</option>)}</select></label>
           <label className="grid gap-1.5 text-sm font-semibold">Lương giáo viên 1h<input name={`${type}.teacherPrice`} type="number" min="0" step="1000" defaultValue={config.teacherPrice} className={inputClass} /></label>
         </>}
