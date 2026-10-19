@@ -53,13 +53,26 @@ export default function TeacherPaymentsPage() {
       accountBank: teachers.get(salary.teacherId)?.accountBank || '',
     }))
     const hourly = new Map<string, { teacherId: string; name: string; amount: number; totalHours: number }>()
+    const countedShadow = new Set<string>()
     for (const attendance of attendanceQuery.data || []) {
       if (typeof attendance.children === 'string') continue
       for (const day of attendance.days) {
-        if (day.absent || !day.teacherId || !day.teacherName || fixedIds.has(day.teacherId)) continue
+        if (day.absent || !day.teacherId || !day.teacherName) continue
+        const shadowKey = `${attendance._id}_${day.teacherId}`
+        if (attendance.type === 'SHADOW' && countedShadow.has(shadowKey)) continue
+        if (attendance.type === 'SHADOW') countedShadow.add(shadowKey)
+        const amount = attendance.type === 'SHADOW' ? day.salaryTeacher : day.spendTime * day.salaryTeacher
+        if (fixedIds.has(day.teacherId)) {
+          const fixedRow = result.find((row) => row.teacherId === day.teacherId)
+          if (fixedRow) {
+            fixedRow.amount += amount
+            if (attendance.type !== 'SHADOW') fixedRow.totalHours += day.spendTime
+          }
+          continue
+        }
         const current = hourly.get(day.teacherId) || { teacherId: day.teacherId, name: day.teacherName, amount: 0, totalHours: 0 }
-        current.totalHours += day.spendTime
-        current.amount += day.spendTime * day.salaryTeacher
+        if (attendance.type !== 'SHADOW') current.totalHours += day.spendTime
+        current.amount += amount
         hourly.set(day.teacherId, current)
       }
     }

@@ -8,6 +8,7 @@ import { Card, CardHeader } from '@/components/ui/card'
 import { Modal } from '@/components/ui/modal'
 import { PageHeader } from '@/components/ui/page-header'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { childTypeLabel, configForAttendance, lessonConfigType, scheduleForDate } from '@/lib/child-pricing'
 import { getMonthlyAttendances, type MonthlyAttendance } from '@/services/apis/attendance-api'
 import { getVietQrImage } from '@/services/apis/account-bank-api'
 import { getSalaryMonth, getSalaryPayments, getTeachers, type SalaryMonth, type Teacher, updateMonthlySalary, updateSalaryPayment, updateTeacher } from '@/services/apis/teachers-api'
@@ -24,6 +25,8 @@ type AttendanceDay = MonthlyAttendance['days'][number]
 
 interface ChildTeachingGroup {
   child: AttendanceChild
+  typeCode: string
+  typeLabel: string
   days: AttendanceDay[]
   salaryPerHour: number
   totalHours: number
@@ -38,13 +41,34 @@ interface TeacherTeachingGroup {
   totalSalary: number
 }
 
+type FixedSalaryGroup = SalaryMonth['salaries'][number] & {
+  children: ChildTeachingGroup[]
+  totalHours: number
+}
+
+const teachingSalaryByType = (children: ChildTeachingGroup[]) => {
+  const totals = new Map<string, { typeCode: string; label: string; amount: number; hours: number; days: number; hourlyRates: Set<number> }>()
+  for (const child of children) {
+    const current = totals.get(child.typeCode) || { typeCode: child.typeCode, label: child.typeLabel, amount: 0, hours: 0, days: 0, hourlyRates: new Set<number>() }
+    current.amount += child.totalSalary
+    current.hours += child.totalHours
+    current.days += child.days.length
+    if (child.salaryPerHour > 0) current.hourlyRates.add(child.salaryPerHour)
+    totals.set(child.typeCode, current)
+  }
+  return [...totals.values()].filter((item) => item.amount > 0).map((item) => ({ ...item, hourlyRates: [...item.hourlyRates].sort((left, right) => left - right) }))
+}
+
+const fixedSalaryGrandTotal = (salary: FixedSalaryGroup) =>
+  salary.totalSalary + salary.children.reduce((sum, child) => sum + child.totalSalary, 0)
+
 export default function TeacherHistoryPage() {
   const queryClient = useQueryClient()
   const [month, setMonth] = useState(currentMonth)
   const [search, setSearch] = useState('')
   const [receipt, setReceipt] = useState<TeacherTeachingGroup | null>(null)
   const [editingHourlyTeacher, setEditingHourlyTeacher] = useState<Teacher | null>(null)
-  const [fixedReceipt, setFixedReceipt] = useState<SalaryMonth['salaries'][number] | null>(null)
+  const [fixedReceipt, setFixedReceipt] = useState<FixedSalaryGroup | null>(null)
   const [editingFixedSalary, setEditingFixedSalary] = useState<SalaryMonth['salaries'][number] | null>(null)
   const [absentDates, setAbsentDates] = useState<string[]>([])
   const [paidLeaveDates, setPaidLeaveDates] = useState<string[]>([])
@@ -63,7 +87,7 @@ export default function TeacherHistoryPage() {
   const receiptTeacher = teachersQuery.data?.find((teacher) => teacher._id === receipt?.teacherId)
   const fixedReceiptTeacher = teachersQuery.data?.find((teacher) => teacher._id === fixedReceipt?.teacherId)
   const activeReceiptTeacher = fixedReceipt ? fixedReceiptTeacher : receiptTeacher
-  const activeReceiptAmount = fixedReceipt?.totalSalary ?? receipt?.totalSalary ?? 0
+  const activeReceiptAmount = fixedReceipt ? fixedSalaryGrandTotal(fixedReceipt) : receipt?.totalSalary ?? 0
   const salaryPaymentsQuery = useQuery({ queryKey: ['salary-payments', month], queryFn: () => getSalaryPayments(month) })
   const activePayment = salaryPaymentsQuery.data?.find((payment) => payment.teacherId === activeReceiptTeacher?._id)
   const salaryQrQuery = useQuery({
@@ -100,6 +124,22 @@ export default function TeacherHistoryPage() {
     onError: (error) => toast.error(error instanceof Error ? error.message : 'Không thể cập nhật giáo viên'),
   })
   const fixedSalaryTeacherIds = useMemo(() => new Set((salaryMonthQuery.data?.salaries || []).map((salary) => salary.teacherId)), [salaryMonthQuery.data])
+  const teachersById = useMemo(() => new Map((teachersQuery.data || []).map((teacher) => [teacher._id, teacher])), [teachersQuery.data])
+
+  const resolveDayTeacher = (attendance: MonthlyAttendance, day: AttendanceDay) => {
+    if (typeof attendance.children === 'string') return null
+    const config = configForAttendance(attendance.children, attendance.type, day.lessonType)
+    const schedule = scheduleForDate(config, day.date)
+    const teacherId = day.teacherId || schedule?.teacherId || ''
+    if (!teacherId) return null
+    const teacherName = day.teacherName || teachersById.get(teacherId)?.name || schedule?.teacherName || `GV #${teacherId}`
+    const salaryTeacher = day.salaryTeacher || (String(schedule?.teacherId || '') === teacherId ? schedule?.teacherPrice || 0 : 0)
+    return { teacherId, teacherName, salaryTeacher }
+  }
+  const teachingType = (attendance: MonthlyAttendance, day: AttendanceDay) => {
+    const typeCode = attendance.type === 'THEO_BUOI' ? lessonConfigType(day.lessonType) : attendance.type
+    return { typeCode, typeLabel: childTypeLabel(typeCode) }
+  }
 
   const teacherGroups = useMemo(() => {
     const teachers = new Map<string, { teacherName: string; children: Map<string, ChildTeachingGroup> }>()
@@ -107,15 +147,19 @@ export default function TeacherHistoryPage() {
       if (typeof attendance.children === 'string') continue
       const child = attendance.children
       for (const day of attendance.days) {
-        if (day.absent || !day.teacherId || !day.teacherName || fixedSalaryTeacherIds.has(day.teacherId)) continue
-        const teacher = teachers.get(day.teacherId) || { teacherName: day.teacherName, children: new Map<string, ChildTeachingGroup>() }
-        const childGroup: ChildTeachingGroup = teacher.children.get(child._id) || { child, days: [], salaryPerHour: day.salaryTeacher || 0, totalHours: 0, totalSalary: 0 }
+        const resolvedTeacher = resolveDayTeacher(attendance, day)
+        if (day.absent || !resolvedTeacher || fixedSalaryTeacherIds.has(resolvedTeacher.teacherId)) continue
+        const sourceType = teachingType(attendance, day)
+        const childKey = `${child._id}_${sourceType.typeCode}`
+        const teacher = teachers.get(resolvedTeacher.teacherId) || { teacherName: resolvedTeacher.teacherName, children: new Map<string, ChildTeachingGroup>() }
+        const childGroup: ChildTeachingGroup = teacher.children.get(childKey) || { child, ...sourceType, days: [], salaryPerHour: resolvedTeacher.salaryTeacher, totalHours: 0, totalSalary: 0 }
+        const isFirstShadowDay = attendance.type === 'SHADOW' && childGroup.days.length === 0
         childGroup.days.push(day)
-        childGroup.salaryPerHour = day.salaryTeacher || childGroup.salaryPerHour
-        childGroup.totalHours += day.spendTime
-        childGroup.totalSalary += day.spendTime * day.salaryTeacher
-        teacher.children.set(child._id, childGroup)
-        teachers.set(day.teacherId, teacher)
+        childGroup.salaryPerHour = resolvedTeacher.salaryTeacher || childGroup.salaryPerHour
+        if (attendance.type !== 'SHADOW') childGroup.totalHours += day.spendTime
+        childGroup.totalSalary += attendance.type === 'SHADOW' ? (isFirstShadowDay ? resolvedTeacher.salaryTeacher : 0) : day.spendTime * resolvedTeacher.salaryTeacher
+        teacher.children.set(childKey, childGroup)
+        teachers.set(resolvedTeacher.teacherId, teacher)
       }
     }
     return [...teachers.entries()].map(([teacherId, teacher]) => {
@@ -128,7 +172,7 @@ export default function TeacherHistoryPage() {
         totalSalary: children.reduce((sum, child) => sum + child.totalSalary, 0),
       }
     }).sort((left, right) => left.teacherName.localeCompare(right.teacherName, 'vi'))
-  }, [attendanceQuery.data, fixedSalaryTeacherIds])
+  }, [attendanceQuery.data, fixedSalaryTeacherIds, teachersById])
   const filteredGroups = useMemo(() => {
     const keyword = search.trim().toLocaleLowerCase('vi')
     return keyword ? teacherGroups.filter((group) => group.teacherName.toLocaleLowerCase('vi').includes(keyword) || group.children.some((child) => child.child.name.toLocaleLowerCase('vi').includes(keyword))) : teacherGroups
@@ -138,16 +182,20 @@ export default function TeacherHistoryPage() {
     for (const attendance of attendanceQuery.data || []) {
       if (typeof attendance.children === 'string') continue
       for (const day of attendance.days) {
-        if (day.absent || !day.teacherId || !fixedSalaryTeacherIds.has(day.teacherId)) continue
-        const children = teachingByTeacher.get(day.teacherId) || new Map<string, ChildTeachingGroup>()
-        const salaryPerHour = day.salaryTeacher || 0
-        const childGroup: ChildTeachingGroup = children.get(attendance.children._id) || { child: attendance.children, days: [], salaryPerHour, totalHours: 0, totalSalary: 0 }
+        const resolvedTeacher = resolveDayTeacher(attendance, day)
+        if (day.absent || !resolvedTeacher || !fixedSalaryTeacherIds.has(resolvedTeacher.teacherId)) continue
+        const sourceType = teachingType(attendance, day)
+        const childKey = `${attendance.children._id}_${sourceType.typeCode}`
+        const children = teachingByTeacher.get(resolvedTeacher.teacherId) || new Map<string, ChildTeachingGroup>()
+        const salaryPerHour = resolvedTeacher.salaryTeacher
+        const childGroup: ChildTeachingGroup = children.get(childKey) || { child: attendance.children, ...sourceType, days: [], salaryPerHour, totalHours: 0, totalSalary: 0 }
+        const isFirstShadowDay = attendance.type === 'SHADOW' && childGroup.days.length === 0
         childGroup.days.push(day)
         childGroup.salaryPerHour = salaryPerHour || childGroup.salaryPerHour
-        childGroup.totalHours += day.spendTime
-        childGroup.totalSalary += day.spendTime * salaryPerHour
-        children.set(attendance.children._id, childGroup)
-        teachingByTeacher.set(day.teacherId, children)
+        if (attendance.type !== 'SHADOW') childGroup.totalHours += day.spendTime
+        childGroup.totalSalary += attendance.type === 'SHADOW' ? (isFirstShadowDay ? salaryPerHour : 0) : day.spendTime * salaryPerHour
+        children.set(childKey, childGroup)
+        teachingByTeacher.set(resolvedTeacher.teacherId, children)
       }
     }
     const keyword = search.trim().toLocaleLowerCase('vi')
@@ -155,7 +203,7 @@ export default function TeacherHistoryPage() {
       const children = [...(teachingByTeacher.get(salary.teacherId)?.values() || [])].sort((left, right) => left.child.name.localeCompare(right.child.name, 'vi'))
       return { ...salary, children, totalHours: children.reduce((sum, child) => sum + child.totalHours, 0) }
     }).filter((group) => !keyword || group.teacherName.toLocaleLowerCase('vi').includes(keyword) || group.children.some((child) => child.child.name.toLocaleLowerCase('vi').includes(keyword)))
-  }, [attendanceQuery.data, fixedSalaryTeacherIds, salaryMonthQuery.data, search])
+  }, [attendanceQuery.data, fixedSalaryTeacherIds, salaryMonthQuery.data, search, teachersById])
   const totalSalary = filteredGroups.reduce((sum, group) => sum + group.totalSalary, 0)
   const formatTeachingDates = (days: AttendanceDay[]) => {
     const dates = [...new Set(days.map((day) => Number(day.date.slice(8, 10))))].sort((left, right) => left - right)
@@ -231,9 +279,9 @@ export default function TeacherHistoryPage() {
     {salaryMonthQuery.isLoading && <Card className="flex min-h-32 items-center justify-center gap-2 text-sm text-muted"><Loader2 size={18} className="spin text-primary" />Đang tải lương cố định tháng...</Card>}
     {salaryMonthQuery.isSuccess && fixedSalaryGroups.length > 0 && <div className="flex items-center gap-3"><span className="whitespace-nowrap text-sm font-bold uppercase tracking-wide text-blue-700 dark:text-blue-300">Các cô cả ngày</span><span className="h-px flex-1 bg-blue-300 dark:bg-blue-500/40" /></div>}
     {salaryMonthQuery.isSuccess && fixedSalaryGroups.map((salary) => <Card key={salary.teacherId} className="overflow-hidden shadow-md shadow-slate-200/60 dark:shadow-none">
-      <CardHeader title={salary.teacherName} description={`Lương cố định · ${salary.children.length} trẻ · ${salary.totalHours} giờ`} action={<div className="flex items-center gap-2"><strong className="mr-1 text-primary">{formatMoney(salary.totalSalary)}</strong><Button type="button" size="sm" variant="secondary" onClick={() => openFixedSalaryEditor(salary)}><Pencil size={14} />Chỉnh sửa</Button>{transferredCheckbox(salary.teacherId, salary.totalSalary)}<Button type="button" size="sm" onClick={() => setFixedReceipt(salary)}><FileImage size={14} />Xuất phiếu</Button></div>} />
+      <CardHeader title={salary.teacherName} description={`Lương cố định · ${salary.children.length} nguồn dạy · ${salary.totalHours} giờ`} action={<div className="flex items-center gap-2"><strong className="mr-1 text-primary">{formatMoney(fixedSalaryGrandTotal(salary))}</strong><Button type="button" size="sm" variant="secondary" onClick={() => openFixedSalaryEditor(salary)}><Pencil size={14} />Chỉnh sửa</Button>{transferredCheckbox(salary.teacherId, fixedSalaryGrandTotal(salary))}<Button type="button" size="sm" onClick={() => setFixedReceipt(salary)}><FileImage size={14} />Xuất phiếu</Button></div>} />
       <Table><TableHeader><TableRow><TableHead>Lương cơ bản</TableHead><TableHead>Bảo hiểm</TableHead><TableHead>Chuyên cần</TableHead><TableHead>Lương khác</TableHead><TableHead>Ngày nghỉ</TableHead><TableHead className="text-right">Tổng thực nhận</TableHead></TableRow></TableHeader><TableBody><TableRow><TableCell className="whitespace-nowrap font-medium">{formatMoney(salary.baseSalary)}</TableCell><TableCell className="whitespace-nowrap">{formatMoney(salary.insuranceSupport)}</TableCell><TableCell className="whitespace-nowrap">{formatMoney(attendanceBonusAmount(salary))}{salary.absents.length >= 2 && <span className="block text-[10px] text-red-600">Mất do nghỉ từ 2 ngày</span>}</TableCell><TableCell className="whitespace-nowrap">{formatMoney(salary.otherSalary)}</TableCell><TableCell>{salary.absents.length ? <div className="grid min-w-52 gap-1">{salary.absents.map((absent) => <span key={absent.date} className={`rounded-md px-2 py-1 text-[10px] font-semibold ${absent.isPaidLeave ? 'bg-blue-50 text-blue-700' : 'bg-red-50 text-red-700'}`}>{new Date(absent.date).toLocaleDateString('vi-VN')} · {absent.isPaidLeave ? 'Phép' : `-${formatMoney(absent.subSalary)}`}</span>)}</div> : '—'}</TableCell><TableCell className="whitespace-nowrap text-right text-base font-bold text-primary">{formatMoney(salary.totalSalary)}</TableCell></TableRow></TableBody></Table>
-      {salary.children.length > 0 && <div className="border-t border-border"><div className="bg-surface-muted/40 px-4 py-2 text-[11px] font-bold uppercase text-muted">Trẻ và ngày dạy</div><Table><TableHeader><TableRow><TableHead>Tên trẻ</TableHead><TableHead>Ngày dạy</TableHead><TableHead>Số giờ</TableHead><TableHead>Lương 1 giờ</TableHead><TableHead className="text-right">Tiền lương</TableHead></TableRow></TableHeader><TableBody>{salary.children.map((child) => <TableRow key={child.child._id}><TableCell className="font-semibold">{child.child.name}</TableCell><TableCell className="font-medium">{formatTeachingDates(child.days)}</TableCell><TableCell>{child.totalHours} giờ</TableCell><TableCell className="whitespace-nowrap">{formatMoney(child.salaryPerHour)}</TableCell><TableCell className="text-right font-bold text-primary">{formatMoney(child.totalSalary)}</TableCell></TableRow>)}</TableBody></Table></div>}
+      {salary.children.length > 0 && <div className="border-t border-border"><div className="bg-surface-muted/40 px-4 py-2 text-[11px] font-bold uppercase text-muted">Trẻ và ngày dạy</div><Table><TableHeader><TableRow><TableHead>Tên trẻ</TableHead><TableHead>Loại học</TableHead><TableHead>Ngày dạy</TableHead><TableHead>Số giờ</TableHead><TableHead>Lương 1 giờ</TableHead><TableHead className="text-right">Tiền lương</TableHead></TableRow></TableHeader><TableBody>{salary.children.map((child) => <TableRow key={`${child.child._id}-${child.typeCode}`}><TableCell className="font-semibold">{child.child.name}</TableCell><TableCell>{child.typeLabel}</TableCell><TableCell className="font-medium">{formatTeachingDates(child.days)}</TableCell><TableCell>{child.totalHours} giờ</TableCell><TableCell className="whitespace-nowrap">{formatMoney(child.salaryPerHour)}</TableCell><TableCell className="text-right font-bold text-primary">{formatMoney(child.totalSalary)}</TableCell></TableRow>)}</TableBody></Table></div>}
     </Card>)}
     {attendanceQuery.isLoading && <Card className="flex min-h-56 items-center justify-center gap-2 text-sm text-muted"><Loader2 size={18} className="spin text-primary" />Đang tổng hợp lịch sử dạy...</Card>}
     {attendanceQuery.isError && <Card className="p-5 text-sm text-red-700">Không thể tải lịch sử dạy.</Card>}
@@ -241,7 +289,7 @@ export default function TeacherHistoryPage() {
     {attendanceQuery.isSuccess && filteredGroups.length > 0 && <div className="flex items-center gap-3"><span className="whitespace-nowrap text-sm font-bold uppercase tracking-wide text-purple-700 dark:text-purple-300">Các cô cá nhân</span><span className="h-px flex-1 bg-purple-300 dark:bg-purple-500/40" /></div>}
     {filteredGroups.map((group) => <Card key={group.teacherId} className="overflow-hidden shadow-md shadow-slate-200/60 dark:shadow-none">
       <CardHeader title={group.teacherName} description={`${group.children.length} trẻ · ${group.totalHours} giờ`} action={<div className="flex items-center gap-2"><strong className="mr-1 text-primary">{formatMoney(group.totalSalary)}</strong><Button type="button" size="sm" variant="secondary" onClick={() => { const teacher = teachersQuery.data?.find((item) => item._id === group.teacherId); if (teacher) setEditingHourlyTeacher(teacher); else toast.error('Không tìm thấy thông tin giáo viên') }}><Pencil size={14} />Chỉnh sửa</Button>{transferredCheckbox(group.teacherId, group.totalSalary)}<Button type="button" size="sm" variant="secondary" onClick={() => setReceipt(group)}><FileImage size={14} />Xuất phiếu</Button></div>} />
-      <Table><TableHeader><TableRow><TableHead>Tên trẻ</TableHead><TableHead>Ngày dạy</TableHead><TableHead>Số giờ</TableHead><TableHead>Lương 1 giờ</TableHead><TableHead className="text-right">Tiền lương</TableHead></TableRow></TableHeader><TableBody>{group.children.map((child) => <TableRow key={child.child._id}><TableCell className="font-semibold">{child.child.name}</TableCell><TableCell className="font-medium">{formatTeachingDates(child.days)}</TableCell><TableCell>{child.totalHours} giờ</TableCell><TableCell className="whitespace-nowrap">{formatMoney(child.salaryPerHour)}</TableCell><TableCell className="text-right font-bold text-primary">{formatMoney(child.totalSalary)}</TableCell></TableRow>)}</TableBody></Table>
+      <Table><TableHeader><TableRow><TableHead>Tên trẻ</TableHead><TableHead>Loại học</TableHead><TableHead>Ngày dạy</TableHead><TableHead>Số giờ</TableHead><TableHead>Lương 1 giờ</TableHead><TableHead className="text-right">Tiền lương</TableHead></TableRow></TableHeader><TableBody>{group.children.map((child) => <TableRow key={`${child.child._id}-${child.typeCode}`}><TableCell className="font-semibold">{child.child.name}</TableCell><TableCell>{child.typeLabel}</TableCell><TableCell className="font-medium">{formatTeachingDates(child.days)}</TableCell><TableCell>{child.totalHours} giờ</TableCell><TableCell className="whitespace-nowrap">{formatMoney(child.salaryPerHour)}</TableCell><TableCell className="text-right font-bold text-primary">{formatMoney(child.totalSalary)}</TableCell></TableRow>)}</TableBody></Table>
     </Card>)}
     <Modal open={Boolean(editingHourlyTeacher)} onClose={() => !updateHourlyTeacherMutation.isPending && setEditingHourlyTeacher(null)} title="Chỉnh sửa giáo viên cá nhân" description={editingHourlyTeacher?.name}>
       {editingHourlyTeacher && <form onSubmit={(event) => { event.preventDefault(); const form = new FormData(event.currentTarget); updateHourlyTeacherMutation.mutate({ id: editingHourlyTeacher._id, isPayInsurance: form.get('isPayInsurance') === 'on' }) }} className="grid gap-5">
@@ -287,14 +335,22 @@ export default function TeacherHistoryPage() {
       {fixedReceipt && <div className="grid gap-4"><div ref={receiptRef} className="mx-auto w-[650px] bg-white p-6 text-slate-900">
         <div className="border-b-2 border-blue-600 pb-3 text-center"><h2 className="m-0 text-xl font-bold">PHIẾU LƯƠNG CỐ ĐỊNH</h2><span className="text-xs text-slate-500">Tháng {selectedMonth}/{selectedYear}</span></div>
         <div className="mt-4 rounded-xl bg-slate-50 p-4"><span className="text-xs text-slate-500">Giáo viên</span><strong className="block text-xl">{fixedReceipt.teacherName}</strong>{fixedReceipt.isPayInsurance && <span className="mt-2 inline-flex rounded-full bg-emerald-100 px-3 py-1 text-xs font-bold text-emerald-700">Có đóng bảo hiểm</span>}</div>
-        <div className="mt-4 overflow-hidden rounded-lg border border-slate-300 text-sm"><div className="flex justify-between border-b border-slate-200 p-3"><span>Lương cơ bản</span><strong>{formatMoney(fixedReceipt.baseSalary)}</strong></div><div className="flex justify-between border-b border-slate-200 p-3"><span>Hỗ trợ bảo hiểm</span><strong>{formatMoney(fixedReceipt.insuranceSupport)}</strong></div><div className="flex justify-between border-b border-slate-200 p-3"><span>{fixedReceipt.absents.length >= 2 ? `Chuyên cần (mất do nghỉ từ 2 ngày)` : `Chuyên cần`}</span><strong className={fixedReceipt.absents.length >= 2 ? `text-red-600` : undefined}>{formatMoney(attendanceBonusAmount(fixedReceipt))}</strong></div><div className="flex justify-between border-b border-slate-200 p-3"><span>Lương khác</span><strong>{formatMoney(fixedReceipt.otherSalary)}</strong></div>{fixedReceipt.absents.map((absent) => <div key={absent.date} className={`flex justify-between border-b p-3 ${absent.isPaidLeave ? 'border-blue-100 bg-blue-50 text-blue-700' : 'border-red-100 bg-red-50 text-red-700'}`}><span>{absent.isPaidLeave ? 'Nghỉ phép' : 'Trừ nghỉ'} ngày {new Date(absent.date).toLocaleDateString('vi-VN')}</span><strong>{absent.isPaidLeave ? 'Không trừ lương' : `- ${formatMoney(absent.subSalary)}`}</strong></div>)}<div className="flex justify-between bg-blue-50 p-4 text-base text-blue-700"><strong>TỔNG THỰC NHẬN</strong><strong>{formatMoney(fixedReceipt.totalSalary)}</strong></div></div>
+        <div className="mt-4 overflow-hidden rounded-lg border border-slate-300 text-sm">
+          {fixedReceipt.baseSalary > 0 && <div className="flex justify-between border-b border-slate-200 p-3"><span>Lương cơ bản · Trung tâm</span><strong>{formatMoney(fixedReceipt.baseSalary)}</strong></div>}
+          {fixedReceipt.insuranceSupport > 0 && <div className="flex justify-between border-b border-slate-200 p-3"><span>Hỗ trợ bảo hiểm</span><strong>{formatMoney(fixedReceipt.insuranceSupport)}</strong></div>}
+          {attendanceBonusAmount(fixedReceipt) > 0 && <div className="flex justify-between border-b border-slate-200 p-3"><span>Chuyên cần</span><strong>{formatMoney(attendanceBonusAmount(fixedReceipt))}</strong></div>}
+          {fixedReceipt.otherSalary > 0 && <div className="flex justify-between border-b border-slate-200 p-3"><span>Lương khác</span><strong>{formatMoney(fixedReceipt.otherSalary)}</strong></div>}
+          {teachingSalaryByType(fixedReceipt.children).map((item) => <div key={item.label} className="flex items-center justify-between gap-4 border-b border-purple-100 bg-purple-50/60 p-3"><span><strong className="block">Lương dạy · {item.label}</strong><span className="text-xs text-slate-500">{item.typeCode === 'SHADOW' ? `${item.days} ngày · Tổng lương tháng` : `${item.hours}h · Lương giờ: ${item.hourlyRates.map(formatMoney).join(' / ')}`}</span></span><strong className="whitespace-nowrap">{formatMoney(item.amount)}</strong></div>)}
+          {fixedReceipt.absents.filter((absent) => absent.isPaidLeave || absent.subSalary > 0).map((absent) => <div key={absent.date} className={`flex justify-between border-b p-3 ${absent.isPaidLeave ? 'border-blue-100 bg-blue-50 text-blue-700' : 'border-red-100 bg-red-50 text-red-700'}`}><span>{absent.isPaidLeave ? 'Nghỉ phép' : 'Trừ nghỉ'} ngày {new Date(absent.date).toLocaleDateString('vi-VN')}</span><strong>{absent.isPaidLeave ? 'Không trừ lương' : `- ${formatMoney(absent.subSalary)}`}</strong></div>)}
+          <div className="flex justify-between bg-blue-50 p-4 text-base text-blue-700"><strong>TỔNG THỰC NHẬN</strong><strong>{formatMoney(fixedSalaryGrandTotal(fixedReceipt))}</strong></div>
+        </div>
         {salaryQrBlock}
         <p className="mb-0 mt-4 text-center text-[9px] text-slate-400">Phiếu được tổng hợp từ hệ thống quản lý</p>
       </div><div className="flex items-center justify-end gap-2 border-t border-border pt-4">{paidStatus}<Button type="button" variant="secondary" onClick={() => setFixedReceipt(null)} disabled={copying}>Đóng</Button><Button type="button" onClick={copyReceipt} disabled={copying}>{copying ? <Loader2 size={16} className="spin" /> : <Copy size={16} />}Copy hình</Button>{markPaidButton}</div></div>}
     </Modal>
 
     <Modal open={Boolean(receipt)} onClose={() => !copying && setReceipt(null)} title="Xuất phiếu lương" className="max-h-[92vh] max-w-4xl overflow-auto">
-      {receipt && <div className="grid gap-4"><div ref={receiptRef} className="mx-auto w-[760px] bg-white p-6 text-slate-900"><div className="border-b-2 border-primary pb-3 text-center"><h2 className="m-0 text-xl font-bold">PHIẾU TỔNG HỢP LỊCH SỬ DẠY</h2></div><div className="mt-4 flex items-end justify-between rounded-xl bg-slate-50 p-4"><div><span className="text-xs text-slate-500">Giáo viên</span><strong className="block text-xl">{receipt.teacherName}</strong>{receiptTeacher?.isPayInsurance && <span className="mt-1 inline-flex rounded-full bg-emerald-100 px-3 py-1 text-xs font-bold text-emerald-700">Có đóng bảo hiểm</span>}<span className="text-xs text-slate-500">Tháng {selectedMonth}/{selectedYear}</span></div><div className="text-right"><strong className="block text-xl text-blue-600">{formatMoney(receipt.totalSalary)}</strong><span className="text-xs text-slate-500">{receipt.totalHours} giờ</span></div></div><h3 className="mb-2 mt-4 text-xs font-bold uppercase text-slate-600">Các trẻ đã dạy</h3><div className="overflow-hidden rounded-lg border border-slate-300"><table className="w-full border-collapse text-xs"><thead className="bg-slate-100"><tr><th className="border-b border-r border-slate-300 p-2 text-left">Tên trẻ</th><th className="w-44 border-b border-r border-slate-300 px-2 py-2 text-left">Ngày dạy</th><th className="border-b border-r border-slate-300 p-2">Giờ</th><th className="border-b border-r border-slate-300 p-2">Lương 1 giờ</th><th className="border-b border-slate-300 p-2 text-right">Tiền lương</th></tr></thead><tbody>{receipt.children.map((child) => <tr key={child.child._id}><td className="border-b border-r border-slate-200 p-2 font-semibold">{child.child.name}</td><td className="w-44 border-b border-r border-slate-200 px-2 py-2 text-[11px] font-medium">{formatTeachingDates(child.days)}</td><td className="border-b border-r border-slate-200 p-2 text-center">{child.totalHours}</td><td className="border-b border-r border-slate-200 p-2 text-center">{formatMoney(child.salaryPerHour)}</td><td className="border-b border-slate-200 p-2 text-right font-bold">{formatMoney(child.totalSalary)}</td></tr>)}</tbody></table></div>{salaryQrBlock}<p className="mb-0 mt-4 text-center text-[9px] text-slate-400">Phiếu được tổng hợp từ hệ thống quản lý</p></div><div className="flex items-center justify-end gap-2 border-t border-border pt-4">{paidStatus}<Button type="button" variant="secondary" onClick={() => setReceipt(null)} disabled={copying}>Đóng</Button><Button type="button" onClick={copyReceipt} disabled={copying}>{copying ? <Loader2 size={16} className="spin" /> : <Copy size={16} />}Copy hình</Button>{markPaidButton}</div></div>}
+      {receipt && <div className="grid gap-4"><div ref={receiptRef} className="mx-auto w-[760px] bg-white p-6 text-slate-900"><div className="border-b-2 border-primary pb-3 text-center"><h2 className="m-0 text-xl font-bold">PHIẾU TỔNG HỢP LỊCH SỬ DẠY</h2></div><div className="mt-4 flex items-end justify-between rounded-xl bg-slate-50 p-4"><div><span className="text-xs text-slate-500">Giáo viên</span><strong className="block text-xl">{receipt.teacherName}</strong>{receiptTeacher?.isPayInsurance && <span className="mt-1 inline-flex rounded-full bg-emerald-100 px-3 py-1 text-xs font-bold text-emerald-700">Có đóng bảo hiểm</span>}<span className="text-xs text-slate-500">Tháng {selectedMonth}/{selectedYear}</span></div><div className="text-right">{receipt.totalSalary > 0 && <strong className="block text-xl text-blue-600">{formatMoney(receipt.totalSalary)}</strong>}<span className="text-xs text-slate-500">{receipt.totalHours} giờ</span></div></div>{receipt.children.some((child) => child.totalSalary > 0) && <><h3 className="mb-2 mt-4 text-xs font-bold uppercase text-slate-600">Các trẻ đã dạy</h3><div className="overflow-hidden rounded-lg border border-slate-300"><table className="w-full border-collapse text-xs"><thead className="bg-slate-100"><tr><th className="border-b border-r border-slate-300 p-2 text-left">Tên trẻ</th><th className="border-b border-r border-slate-300 p-2 text-left">Loại học</th><th className="w-36 border-b border-r border-slate-300 px-2 py-2 text-left">Ngày dạy</th><th className="border-b border-r border-slate-300 p-2">Giờ</th><th className="border-b border-r border-slate-300 p-2">Lương 1 giờ</th><th className="border-b border-slate-300 p-2 text-right">Tiền lương</th></tr></thead><tbody>{receipt.children.filter((child) => child.totalSalary > 0).map((child) => <tr key={`${child.child._id}-${child.typeCode}`}><td className="border-b border-r border-slate-200 p-2 font-semibold">{child.child.name}</td><td className="border-b border-r border-slate-200 p-2">{child.typeLabel}</td><td className="w-36 border-b border-r border-slate-200 px-2 py-2 text-[11px] font-medium">{formatTeachingDates(child.days)}</td><td className="border-b border-r border-slate-200 p-2 text-center">{child.totalHours}</td><td className="border-b border-r border-slate-200 p-2 text-center">{formatMoney(child.salaryPerHour)}</td><td className="border-b border-slate-200 p-2 text-right font-bold">{formatMoney(child.totalSalary)}</td></tr>)}</tbody></table></div></>}{salaryQrBlock}<p className="mb-0 mt-4 text-center text-[9px] text-slate-400">Phiếu được tổng hợp từ hệ thống quản lý</p></div><div className="flex items-center justify-end gap-2 border-t border-border pt-4">{paidStatus}<Button type="button" variant="secondary" onClick={() => setReceipt(null)} disabled={copying}>Đóng</Button><Button type="button" onClick={copyReceipt} disabled={copying}>{copying ? <Loader2 size={16} className="spin" /> : <Copy size={16} />}Copy hình</Button>{markPaidButton}</div></div>}
     </Modal>
   </div>
 }

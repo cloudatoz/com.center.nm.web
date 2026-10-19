@@ -12,10 +12,11 @@ import { createTeacher, deleteTeacher, getTeachers, type Teacher, updateTeacher 
 
 const inputClass = 'h-10 rounded-xl border border-border bg-app-background px-3 font-normal outline-none focus:border-primary'
 const formatMoney = (value: number) => `${Number(value || 0).toLocaleString('vi-VN')} đ`
-const teacherTypeLabel = (type: Teacher['type']) => ({ CA_NGAY: 'Cả ngày', THEO_BUOI: 'Theo buổi', CA_NHAN: 'Trung tâm', TAI_NHA: 'Tại nhà', SHADOW: 'Shadow' })[type]
-const teacherTypeOptions: Array<{ value: Teacher['type']; label: string }> = [
+type TeacherType = Teacher['type'][number]
+const teacherTypeLabel = (type: TeacherType) => ({ CA_NGAY: 'Cả ngày', THEO_BUOI: 'Theo buổi', CA_NHAN: 'Trung tâm', TAI_NHA: 'Tại nhà', SHADOW: 'Shadow', ASSISTANT: 'Trợ lý', BEP: 'Bếp' })[type]
+const teacherTypeOptions: Array<{ value: TeacherType; label: string }> = [
   { value: 'CA_NGAY', label: 'Cả ngày' }, { value: 'THEO_BUOI', label: 'Theo buổi' },
-  { value: 'CA_NHAN', label: 'Trung tâm' }, { value: 'TAI_NHA', label: 'Tại nhà' }, { value: 'SHADOW', label: 'Shadow' },
+  { value: 'CA_NHAN', label: 'Trung tâm' }, { value: 'TAI_NHA', label: 'Tại nhà' }, { value: 'SHADOW', label: 'Shadow' }, { value: 'ASSISTANT', label: 'Trợ lý' }, { value: 'BEP', label: 'Bếp' },
 ]
 
 function formatDate(value?: string) {
@@ -30,6 +31,10 @@ function Field({ label, children, wide }: { label: string; children: React.React
 
 function InfoItem({ label, value, wide }: { label: string; value?: React.ReactNode; wide?: boolean }) {
   return <div className={`rounded-xl bg-surface-muted/60 p-3 ${wide ? 'sm:col-span-2' : ''}`}><dt className="text-[11px] font-semibold uppercase tracking-wide text-muted">{label}</dt><dd className="m-0 mt-1 text-sm font-medium text-text-main">{value || '—'}</dd></div>
+}
+
+function TeacherTypeCheckboxes({ initial = ['THEO_BUOI'] }: { initial?: Teacher['type'] }) {
+  return <fieldset className="grid gap-2 sm:col-span-2"><legend className="mb-1 text-sm font-semibold">Loại giáo viên</legend><div className="flex flex-wrap gap-2">{teacherTypeOptions.map((option) => <label key={option.value} className="flex cursor-pointer items-center gap-2 rounded-xl border border-border bg-app-background px-3 py-2 text-sm font-medium has-[:checked]:border-primary has-[:checked]:bg-primary/10 has-[:checked]:text-primary"><input name="type" type="checkbox" value={option.value} defaultChecked={initial.includes(option.value)} className="h-4 w-4 accent-primary" />{option.label}</label>)}</div></fieldset>
 }
 
 function BankInfo({ name }: { name?: string }) {
@@ -97,9 +102,12 @@ export default function TeachersPage() {
     event.preventDefault()
     if (!editingTeacher) return
     const form = new FormData(event.currentTarget)
+    const types = form.getAll('type').map(String) as Teacher['type']
+    if (!types.length) return toast.error('Vui lòng chọn ít nhất một loại giáo viên')
     updateMutation.mutate({
       id: editingTeacher._id,
       data: {
+        order: Math.max(Number(form.get('order')) || 0, 0),
         name: String(form.get('name') || '').trim(),
         account: String(form.get('account') || '').trim(),
         email: String(form.get('email') || '').trim(),
@@ -107,7 +115,7 @@ export default function TeachersPage() {
         address: String(form.get('address') || '').trim(),
         description: String(form.get('description') || '').trim(),
         otherSalary: Number(form.get('otherSalary')) || 0,
-        type: String(form.get('type')) as Teacher['type'],
+        type: types,
         baseSalary: Number(form.get('baseSalary')) || 0,
         insuranceSupport: Number(form.get('insuranceSupport')) || 0,
         isPayInsurance: form.get('isPayInsurance') === 'on',
@@ -123,9 +131,12 @@ export default function TeachersPage() {
   const handleCreate = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     const form = new FormData(event.currentTarget)
+    const types = form.getAll('type').map(String) as Teacher['type']
+    if (!types.length) return toast.error('Vui lòng chọn ít nhất một loại giáo viên')
     createMutation.mutate({
+      order: Math.max(Number(form.get('order')) || 9999, 0),
       name: String(form.get('name') || '').trim(),
-      type: String(form.get('type')) as Teacher['type'],
+      type: types,
       account: String(form.get('account') || '').trim(),
       password: String(form.get('password') || ''),
       email: String(form.get('email') || '').trim(),
@@ -156,10 +167,11 @@ export default function TeachersPage() {
         {teachersQuery.isSuccess && filteredTeachers.length === 0 && <div className="grid min-h-64 place-items-center text-center"><div><Users size={34} className="mx-auto text-muted" /><p className="mb-0 mt-3 font-semibold">Không tìm thấy giáo viên</p></div></div>}
 
         {teachersQuery.isSuccess && filteredTeachers.length > 0 && <Table>
-          <TableHeader><TableRow><TableHead>Giáo viên</TableHead><TableHead>Loại</TableHead><TableHead>Lương cơ bản</TableHead><TableHead>Hỗ trợ bảo hiểm</TableHead><TableHead>Chuyên cần</TableHead><TableHead>Tổng lương</TableHead><TableHead className="text-right">Thao tác</TableHead></TableRow></TableHeader>
+          <TableHeader><TableRow><TableHead className="text-center">Thứ tự</TableHead><TableHead>Giáo viên</TableHead><TableHead>Loại</TableHead><TableHead>Lương cơ bản</TableHead><TableHead>Hỗ trợ bảo hiểm</TableHead><TableHead>Chuyên cần</TableHead><TableHead>Tổng lương</TableHead><TableHead className="text-right">Thao tác</TableHead></TableRow></TableHeader>
           <TableBody>{filteredTeachers.map((teacher) => <TableRow key={teacher._id}>
+            <TableCell className="text-center font-semibold text-muted">{teacher.order}</TableCell>
             <TableCell><div className="flex min-w-44 items-center gap-3"><span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-primary/10 font-bold text-primary">{teacher.name.charAt(0).toUpperCase()}</span><div><strong className="block">{teacher.name}</strong><span className={`mt-1 inline-flex rounded-full px-2 py-0.5 text-[10px] font-bold ${teacher.active ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300' : 'bg-red-50 text-red-700 dark:bg-red-500/15 dark:text-red-300'}`}>{teacher.active ? 'Đang hoạt động' : 'Ngừng hoạt động'}</span></div></div></TableCell>
-            <TableCell><span className={`inline-flex rounded-full px-2 py-1 text-[10px] font-bold ${teacher.type === 'CA_NGAY' ? 'bg-blue-50 text-blue-700 dark:bg-blue-500/15 dark:text-blue-300' : 'bg-purple-50 text-purple-700 dark:bg-purple-500/15 dark:text-purple-300'}`}>{teacherTypeLabel(teacher.type)}{teacher.sessionsPerDay ? ` · ${teacher.sessionsPerDay} buổi` : ''}</span></TableCell>
+            <TableCell><div className="flex min-w-32 flex-wrap gap-1">{teacher.type.map((type) => <span key={type} className={`inline-flex rounded-full px-2 py-1 text-[10px] font-bold ${type === 'CA_NGAY' ? 'bg-blue-50 text-blue-700 dark:bg-blue-500/15 dark:text-blue-300' : 'bg-purple-50 text-purple-700 dark:bg-purple-500/15 dark:text-purple-300'}`}>{teacherTypeLabel(type)}</span>)}{teacher.sessionsPerDay > 0 && <span className="text-[10px] text-muted">{teacher.sessionsPerDay} buổi/ngày</span>}</div></TableCell>
             <TableCell className="whitespace-nowrap font-medium">{formatMoney(teacher.baseSalary)}</TableCell>
             <TableCell className="whitespace-nowrap">{formatMoney(teacher.insuranceSupport)}</TableCell>
             <TableCell className="whitespace-nowrap">{formatMoney(teacher.attendanceBonus)}</TableCell>
@@ -173,7 +185,8 @@ export default function TeachersPage() {
         <form onSubmit={handleCreate} className="grid gap-5">
           <div className="grid gap-4 sm:grid-cols-2">
             <Field label="Họ và tên"><input name="name" required className={inputClass} /></Field>
-            <Field label="Loại giáo viên"><select name="type" defaultValue="THEO_BUOI" className={inputClass}>{teacherTypeOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></Field>
+            <Field label="Thứ tự"><input name="order" type="number" min="0" step="1" defaultValue="9999" className={inputClass} /></Field>
+            <TeacherTypeCheckboxes />
             <Field label="Tài khoản đăng nhập"><input name="account" required autoComplete="off" className={inputClass} /></Field>
             <Field label="Mật khẩu"><input name="password" type="password" required minLength={6} autoComplete="new-password" className={inputClass} /></Field>
             <Field label="Email"><input name="email" type="email" required className={inputClass} /></Field>
@@ -203,14 +216,15 @@ export default function TeachersPage() {
       </Modal>
 
       <Modal open={Boolean(detailTeacher)} onClose={() => setDetailTeacher(null)} title={detailTeacher?.name || 'Thông tin giáo viên'} description="Hồ sơ và thông tin lương" className="max-h-[90vh] max-w-2xl overflow-y-auto">
-        {detailTeacher && <dl className="m-0 grid gap-3 sm:grid-cols-2"><InfoItem label="Loại giáo viên" value={detailTeacher.type === 'CA_NGAY' ? 'Cả ngày' : detailTeacher.type === 'CA_NHAN' ? 'Cá nhân' : 'Theo buổi'} /><InfoItem label="Số buổi/ngày" value={detailTeacher.sessionsPerDay || '—'} /><InfoItem label="Lương cơ bản" value={formatMoney(detailTeacher.baseSalary)} /><InfoItem label="Hỗ trợ bảo hiểm" value={formatMoney(detailTeacher.insuranceSupport)} /><InfoItem label="Trạng thái bảo hiểm" value={detailTeacher.isPayInsurance ? `Có đóng bảo hiểm` : `Không đóng bảo hiểm`} /><InfoItem label="Chuyên cần" value={formatMoney(detailTeacher.attendanceBonus)} /><InfoItem label="Lương khác" value={formatMoney(detailTeacher.otherSalary)} /><InfoItem label="Tài khoản" value={detailTeacher.account} /><InfoItem label="Email" value={detailTeacher.email} /><InfoItem label="Số điện thoại" value={detailTeacher.phone} /><InfoItem label="Tổng lương" value={formatMoney(detailTeacher.baseSalary + detailTeacher.insuranceSupport + detailTeacher.attendanceBonus + detailTeacher.otherSalary)} /><InfoItem label="Ngân hàng" value={<BankInfo name={detailTeacher.nameBank} />} /><InfoItem label="Số tài khoản" value={detailTeacher.accountBank} /><InfoItem label="Địa chỉ" value={detailTeacher.address} wide /><InfoItem label="Mô tả" value={detailTeacher.description} wide /></dl>}
+        {detailTeacher && <dl className="m-0 grid gap-3 sm:grid-cols-2"><InfoItem label="Loại giáo viên" value={detailTeacher.type.map(teacherTypeLabel).join(' · ')} /><InfoItem label="Số buổi/ngày" value={detailTeacher.sessionsPerDay || '—'} /><InfoItem label="Lương cơ bản" value={formatMoney(detailTeacher.baseSalary)} /><InfoItem label="Hỗ trợ bảo hiểm" value={formatMoney(detailTeacher.insuranceSupport)} /><InfoItem label="Trạng thái bảo hiểm" value={detailTeacher.isPayInsurance ? `Có đóng bảo hiểm` : `Không đóng bảo hiểm`} /><InfoItem label="Chuyên cần" value={formatMoney(detailTeacher.attendanceBonus)} /><InfoItem label="Lương khác" value={formatMoney(detailTeacher.otherSalary)} /><InfoItem label="Tài khoản" value={detailTeacher.account} /><InfoItem label="Email" value={detailTeacher.email} /><InfoItem label="Số điện thoại" value={detailTeacher.phone} /><InfoItem label="Tổng lương" value={formatMoney(detailTeacher.baseSalary + detailTeacher.insuranceSupport + detailTeacher.attendanceBonus + detailTeacher.otherSalary)} /><InfoItem label="Ngân hàng" value={<BankInfo name={detailTeacher.nameBank} />} /><InfoItem label="Số tài khoản" value={detailTeacher.accountBank} /><InfoItem label="Địa chỉ" value={detailTeacher.address} wide /><InfoItem label="Mô tả" value={detailTeacher.description} wide /></dl>}
       </Modal>
 
       <Modal open={Boolean(editingTeacher)} onClose={() => !updateMutation.isPending && setEditingTeacher(null)} title="Chỉnh sửa giáo viên" description={editingTeacher?.name} className="max-h-[90vh] max-w-3xl overflow-y-auto">
         {editingTeacher && <form onSubmit={handleEdit} className="grid gap-5">
           <div className="grid gap-4 sm:grid-cols-2">
             <Field label="Họ và tên"><input name="name" required defaultValue={editingTeacher.name} className={inputClass} /></Field>
-            <Field label="Loại giáo viên"><select name="type" defaultValue={editingTeacher.type} className={inputClass}>{teacherTypeOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></Field>
+            <Field label="Thứ tự"><input name="order" type="number" min="0" step="1" defaultValue={editingTeacher.order} className={inputClass} /></Field>
+            <TeacherTypeCheckboxes initial={editingTeacher.type} />
             <Field label="Lương cơ bản"><input name="baseSalary" type="number" min="0" step="1000" defaultValue={editingTeacher.baseSalary} className={inputClass} /></Field>
             <Field label="Hỗ trợ bảo hiểm"><input name="insuranceSupport" type="number" min="0" step="1000" defaultValue={editingTeacher.insuranceSupport} className={inputClass} /></Field>
             <label className="flex items-center gap-3 rounded-xl border border-border p-3 text-sm font-semibold"><input name="isPayInsurance" type="checkbox" defaultChecked={editingTeacher.isPayInsurance} className="h-4 w-4 accent-primary" />Có đóng bảo hiểm</label>

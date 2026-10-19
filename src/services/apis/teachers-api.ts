@@ -3,6 +3,7 @@ import { ApiContractError, apiClient, unwrapPayload } from './api-client'
 
 const teacherSchema = z.object({
   _id: z.coerce.string(),
+  order: z.number().optional().default(9999),
   account: z.string(),
   email: z.string(),
   name: z.string(),
@@ -10,7 +11,10 @@ const teacherSchema = z.object({
   address: z.string(),
   description: z.string().optional().default(''),
   otherSalary: z.number().optional().default(0),
-  type: z.preprocess((value) => value === 'BAN_TRU' ? 'CA_NGAY' : value, z.enum(['CA_NGAY', 'THEO_BUOI', 'CA_NHAN', 'TAI_NHA', 'SHADOW'])).optional().default('THEO_BUOI'),
+  type: z.preprocess(
+    (value) => (Array.isArray(value) ? value : [value]).map((item) => item === 'BAN_TRU' ? 'CA_NGAY' : item),
+    z.array(z.enum(['CA_NGAY', 'THEO_BUOI', 'CA_NHAN', 'TAI_NHA', 'SHADOW', 'ASSISTANT', 'BEP'])).min(1),
+  ).optional().default(['THEO_BUOI']),
   baseSalary: z.number().optional().default(0),
   insuranceSupport: z.number().optional().default(0),
   isPayInsurance: z.boolean().optional().default(false),
