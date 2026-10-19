@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import { ApiContractError, apiClient, unwrapPayload } from './api-client'
-import { childTypeConfigSchema } from './children-api'
+import { childAgeSchema, childTypeConfigSchema } from './children-api'
 
 const attendanceDaySchema = z.object({
   date: z.string(),
@@ -36,6 +36,7 @@ const attendanceChildSchema = z.object({
   type: z.array(childTypeConfigSchema).default([]),
   isInvoice: z.boolean().optional().default(false),
   isSend: z.array(z.string()).optional().default([]),
+  ages: z.array(childAgeSchema).optional().default([]),
   invoiceAmount: z.number().optional().default(3240000),
 })
 

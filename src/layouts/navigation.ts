@@ -1,5 +1,5 @@
 import type { LucideIcon } from 'lucide-react'
-import { GraduationCap, History, LayoutDashboard, Presentation, ReceiptText, UserRoundCog, Users, WalletCards } from 'lucide-react'
+import { BookOpenText, GraduationCap, History, LayoutDashboard, Presentation, ReceiptText, UserRoundCog, Users, WalletCards } from 'lucide-react'
 
 export interface NavLeafItem {
   id: string
@@ -51,6 +51,12 @@ export const ADMIN_NAV_ITEMS: NavItem[] = [
         label: 'Phiếu thu',
         to: '/students/receipts',
         icon: ReceiptText,
+      },
+      {
+        id: 'students-plans',
+        label: 'Kế hoạch',
+        to: '/students/plans',
+        icon: BookOpenText,
       },
     ],
   },

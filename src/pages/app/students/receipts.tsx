@@ -76,7 +76,7 @@ export default function StudentReceiptsPage() {
       }
       current.amount += Math.max(attendanceAmount(attendance), 0)
       current.lessonTypes.add(attendance.type === 'CA_NGAY' ? 'Cả ngày' : 'Theo buổi')
-      for (const config of child.type) if (config.teacherName) current.teachers.add(config.teacherName)
+      for (const config of child.type) for (const schedule of config.schedules) if (schedule.teacherName) current.teachers.add(schedule.teacherName)
       for (const day of attendance.days) {
         if (!day.absent) current.lessonCount += 1
         if (day.teacherName) current.teachers.add(day.teacherName)

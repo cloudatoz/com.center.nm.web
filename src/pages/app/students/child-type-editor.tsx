@@ -1,6 +1,8 @@
+import { Plus, Trash2 } from 'lucide-react'
 import { useState } from 'react'
+import { Button } from '@/components/ui/button'
 import { CHILD_TYPE_OPTIONS, childTypeLabel, emptyTypeConfig } from '@/lib/child-pricing'
-import type { ChildTypeCode, ChildTypeConfig } from '@/services/apis/children-api'
+import type { ChildSchedule, ChildTypeCode, ChildTypeConfig } from '@/services/apis/children-api'
 import type { Teacher } from '@/services/apis/teachers-api'
 
 const inputClass = 'h-10 w-full min-w-0 rounded-xl border border-border bg-app-background px-3 font-normal outline-none focus:border-primary'
@@ -17,12 +19,34 @@ export function readTypeConfigs(form: FormData): ChildTypeConfig[] {
         csvc: Number(form.get(`${type}.csvc`)) || 0,
         meal: Number(form.get(`${type}.meal`)) || 0,
       },
-      teacherId: String(form.get(`${type}.teacherId`) || '') || null,
+      schedules: form.getAll(`${type}.scheduleIndex`).map(String).map((index) => ({
+        teacherId: String(form.get(`${type}.schedules.${index}.teacherId`) || '') || null,
+        teacherName: '',
+        teacherPrice: Number(form.get(`${type}.schedules.${index}.teacherPrice`)) || 0,
+        scheduleInWeek: form.getAll(`${type}.schedules.${index}.scheduleInWeek`).map(String),
+      })).filter((schedule) => schedule.teacherId || schedule.scheduleInWeek.length),
+      teacherId: null,
       teacherName: '',
-      teacherPrice: Number(form.get(`${type}.teacherPrice`)) || 0,
-      scheduleInWeek: form.getAll(`${type}.scheduleInWeek`).map(String),
+      teacherPrice: 0,
+      scheduleInWeek: [],
     }
   })
+}
+
+function ScheduleEditor({ type, initial, teachers }: { type: ChildTypeCode; initial: ChildSchedule[]; teachers: Teacher[] }) {
+  const [schedules, setSchedules] = useState(() => initial.length ? initial : [{ teacherId: null, teacherName: '', teacherPrice: 0, scheduleInWeek: [] }])
+  const addSchedule = () => setSchedules((current) => [...current, { teacherId: null, teacherName: '', teacherPrice: 0, scheduleInWeek: [] }])
+  const removeSchedule = (index: number) => setSchedules((current) => current.filter((_, currentIndex) => currentIndex !== index))
+  return <div className="grid gap-3 sm:col-span-2 lg:col-span-3">
+    <div className="flex items-center justify-between gap-2"><span className="text-sm font-semibold">Giáo viên và lịch dạy</span><Button type="button" size="sm" variant="secondary" onClick={addSchedule}><Plus size={13} />Thêm giáo viên</Button></div>
+    {schedules.map((schedule, index) => <div key={index} className="grid gap-3 rounded-xl border border-border bg-app-background p-3 sm:grid-cols-2">
+      <input type="hidden" name={`${type}.scheduleIndex`} value={index} />
+      <label className="grid gap-1.5 text-sm font-semibold">Giáo viên<select name={`${type}.schedules.${index}.teacherId`} defaultValue={schedule.teacherId || ''} className={inputClass}><option value="">Chưa chọn giáo viên</option>{teachers.filter((teacher) => teacher.active).map((teacher) => <option key={teacher._id} value={teacher._id}>{teacher.name}</option>)}</select></label>
+      <label className="grid gap-1.5 text-sm font-semibold">Lương giáo viên 1h<input name={`${type}.schedules.${index}.teacherPrice`} type="number" min="0" step="1000" defaultValue={schedule.teacherPrice} className={inputClass} /></label>
+      <div className="grid gap-2 sm:col-span-2"><span className="text-xs font-semibold text-muted">Ngày dạy trong tuần</span><div className="flex flex-wrap gap-2">{DAYS_OF_WEEK.map((day) => <label key={day} className="flex cursor-pointer items-center gap-1.5 rounded-lg border border-border bg-surface px-2.5 py-1.5 text-xs font-medium"><input name={`${type}.schedules.${index}.scheduleInWeek`} type="checkbox" value={day} defaultChecked={schedule.scheduleInWeek.includes(day)} />{day}</label>)}</div></div>
+      <div className="flex justify-end sm:col-span-2"><Button type="button" size="sm" variant="danger" onClick={() => removeSchedule(index)} disabled={schedules.length === 1}><Trash2 size={13} />Xóa giáo viên</Button></div>
+    </div>)}
+  </div>
 }
 
 export function ChildTypeEditor({ initial, teachers }: { initial: ChildTypeConfig[]; teachers: Teacher[] }) {
@@ -43,13 +67,8 @@ export function ChildTypeEditor({ initial, teachers }: { initial: ChildTypeConfi
           <label className="grid gap-1.5 text-sm font-semibold">Tiền ăn<input name={`${type}.meal`} type="number" min="0" step="1000" defaultValue={config.prices.meal} className={inputClass} /></label>
         </> : <>
           <label className="grid gap-1.5 text-sm font-semibold">Học phí<input name={`${type}.price`} type="number" min="0" step="1000" defaultValue={config.price} className={inputClass} /></label>
-          <label className="grid gap-1.5 text-sm font-semibold">Giáo viên<select name={`${type}.teacherId`} defaultValue={config.teacherId || ''} className={inputClass}><option value="">Chưa chọn giáo viên</option>{teachers.filter((teacher) => teacher.active).map((teacher) => <option key={teacher._id} value={teacher._id}>{teacher.name}</option>)}</select></label>
-          <label className="grid gap-1.5 text-sm font-semibold">Lương giáo viên 1h<input name={`${type}.teacherPrice`} type="number" min="0" step="1000" defaultValue={config.teacherPrice} className={inputClass} /></label>
         </>}
-        <div className="grid gap-2 sm:col-span-2 lg:col-span-3">
-          <span className="text-sm font-semibold">Lịch học trong tuần</span>
-          <div className="flex flex-wrap gap-2">{DAYS_OF_WEEK.map((day) => <label key={day} className="flex cursor-pointer items-center gap-1.5 rounded-lg border border-border bg-app-background px-2.5 py-1.5 text-xs font-medium"><input name={`${type}.scheduleInWeek`} type="checkbox" value={day} defaultChecked={config.scheduleInWeek.includes(day)} />{day}</label>)}</div>
-        </div>
+        <ScheduleEditor type={type} initial={config.schedules} teachers={teachers} />
       </div>
     })}
   </fieldset>

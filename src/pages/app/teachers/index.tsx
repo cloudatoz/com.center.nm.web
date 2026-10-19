@@ -12,6 +12,11 @@ import { createTeacher, deleteTeacher, getTeachers, type Teacher, updateTeacher 
 
 const inputClass = 'h-10 rounded-xl border border-border bg-app-background px-3 font-normal outline-none focus:border-primary'
 const formatMoney = (value: number) => `${Number(value || 0).toLocaleString('vi-VN')} đ`
+const teacherTypeLabel = (type: Teacher['type']) => ({ CA_NGAY: 'Cả ngày', THEO_BUOI: 'Theo buổi', CA_NHAN: 'Trung tâm', TAI_NHA: 'Tại nhà', SHADOW: 'Shadow' })[type]
+const teacherTypeOptions: Array<{ value: Teacher['type']; label: string }> = [
+  { value: 'CA_NGAY', label: 'Cả ngày' }, { value: 'THEO_BUOI', label: 'Theo buổi' },
+  { value: 'CA_NHAN', label: 'Trung tâm' }, { value: 'TAI_NHA', label: 'Tại nhà' }, { value: 'SHADOW', label: 'Shadow' },
+]
 
 function formatDate(value?: string) {
   if (!value) return '—'
@@ -154,7 +159,7 @@ export default function TeachersPage() {
           <TableHeader><TableRow><TableHead>Giáo viên</TableHead><TableHead>Loại</TableHead><TableHead>Lương cơ bản</TableHead><TableHead>Hỗ trợ bảo hiểm</TableHead><TableHead>Chuyên cần</TableHead><TableHead>Tổng lương</TableHead><TableHead className="text-right">Thao tác</TableHead></TableRow></TableHeader>
           <TableBody>{filteredTeachers.map((teacher) => <TableRow key={teacher._id}>
             <TableCell><div className="flex min-w-44 items-center gap-3"><span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-primary/10 font-bold text-primary">{teacher.name.charAt(0).toUpperCase()}</span><div><strong className="block">{teacher.name}</strong><span className={`mt-1 inline-flex rounded-full px-2 py-0.5 text-[10px] font-bold ${teacher.active ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300' : 'bg-red-50 text-red-700 dark:bg-red-500/15 dark:text-red-300'}`}>{teacher.active ? 'Đang hoạt động' : 'Ngừng hoạt động'}</span></div></div></TableCell>
-            <TableCell><span className={`inline-flex rounded-full px-2 py-1 text-[10px] font-bold ${teacher.type === 'CA_NGAY' ? 'bg-blue-50 text-blue-700 dark:bg-blue-500/15 dark:text-blue-300' : 'bg-purple-50 text-purple-700 dark:bg-purple-500/15 dark:text-purple-300'}`}>{teacher.type === 'CA_NGAY' ? `Cả ngày${teacher.sessionsPerDay ? ` · ${teacher.sessionsPerDay} buổi` : ''}` : teacher.type === 'CA_NHAN' ? 'Cá nhân' : 'Theo buổi'}</span></TableCell>
+            <TableCell><span className={`inline-flex rounded-full px-2 py-1 text-[10px] font-bold ${teacher.type === 'CA_NGAY' ? 'bg-blue-50 text-blue-700 dark:bg-blue-500/15 dark:text-blue-300' : 'bg-purple-50 text-purple-700 dark:bg-purple-500/15 dark:text-purple-300'}`}>{teacherTypeLabel(teacher.type)}{teacher.sessionsPerDay ? ` · ${teacher.sessionsPerDay} buổi` : ''}</span></TableCell>
             <TableCell className="whitespace-nowrap font-medium">{formatMoney(teacher.baseSalary)}</TableCell>
             <TableCell className="whitespace-nowrap">{formatMoney(teacher.insuranceSupport)}</TableCell>
             <TableCell className="whitespace-nowrap">{formatMoney(teacher.attendanceBonus)}</TableCell>
@@ -168,7 +173,7 @@ export default function TeachersPage() {
         <form onSubmit={handleCreate} className="grid gap-5">
           <div className="grid gap-4 sm:grid-cols-2">
             <Field label="Họ và tên"><input name="name" required className={inputClass} /></Field>
-            <Field label="Loại giáo viên"><select name="type" defaultValue="THEO_BUOI" className={inputClass}><option value="CA_NGAY">Cả ngày</option><option value="THEO_BUOI">Theo buổi</option><option value="CA_NHAN">Cá nhân</option></select></Field>
+            <Field label="Loại giáo viên"><select name="type" defaultValue="THEO_BUOI" className={inputClass}>{teacherTypeOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></Field>
             <Field label="Tài khoản đăng nhập"><input name="account" required autoComplete="off" className={inputClass} /></Field>
             <Field label="Mật khẩu"><input name="password" type="password" required minLength={6} autoComplete="new-password" className={inputClass} /></Field>
             <Field label="Email"><input name="email" type="email" required className={inputClass} /></Field>
@@ -205,7 +210,7 @@ export default function TeachersPage() {
         {editingTeacher && <form onSubmit={handleEdit} className="grid gap-5">
           <div className="grid gap-4 sm:grid-cols-2">
             <Field label="Họ và tên"><input name="name" required defaultValue={editingTeacher.name} className={inputClass} /></Field>
-            <Field label="Loại giáo viên"><select name="type" defaultValue={editingTeacher.type} className={inputClass}><option value="CA_NGAY">Cả ngày</option><option value="THEO_BUOI">Theo buổi</option><option value="CA_NHAN">Cá nhân</option></select></Field>
+            <Field label="Loại giáo viên"><select name="type" defaultValue={editingTeacher.type} className={inputClass}>{teacherTypeOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></Field>
             <Field label="Lương cơ bản"><input name="baseSalary" type="number" min="0" step="1000" defaultValue={editingTeacher.baseSalary} className={inputClass} /></Field>
             <Field label="Hỗ trợ bảo hiểm"><input name="insuranceSupport" type="number" min="0" step="1000" defaultValue={editingTeacher.insuranceSupport} className={inputClass} /></Field>
             <label className="flex items-center gap-3 rounded-xl border border-border p-3 text-sm font-semibold"><input name="isPayInsurance" type="checkbox" defaultChecked={editingTeacher.isPayInsurance} className="h-4 w-4 accent-primary" />Có đóng bảo hiểm</label>

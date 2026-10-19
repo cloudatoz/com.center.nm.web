@@ -10,8 +10,10 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { childTypeLabel, getTypeConfig, supportsAttendanceType } from '@/lib/child-pricing'
 import { type Child, type ChildTypeConfig, type CreateChildInput, createChild, getChildren, updateChild } from '@/services/apis/children-api'
 import { type AttendanceType, getMonthlyAttendances } from '@/services/apis/attendance-api'
+import { PLAN_CATEGORIES } from '@/services/apis/plan-api'
 import { getTeachers } from '@/services/apis/teachers-api'
 import { AttendanceModal } from './attendance-modal'
+import { ChildAgeEditor, readChildAges } from './child-age-editor'
 import { ChildTypeEditor, readTypeConfigs } from './child-type-editor'
 
 function formatDate(value?: string | null) {
@@ -59,7 +61,7 @@ const YEAR_OPTIONS = Array.from({ length: CURRENT_YEAR - 2019 + 2 }, (_, index) 
 function TypePricingSummary({ configs }: { configs: ChildTypeConfig[] }) {
   return <div className="grid gap-1.5">{configs.map((config) => <div key={config.type} className="text-xs"><strong>{childTypeLabel(config.type)}:</strong> {config.type === 'CA_NGAY'
     ? `${formatMoney(config.prices.tuition)} + CSVC ${formatMoney(config.prices.csvc)} + ăn ${formatMoney(config.prices.meal)}`
-    : `${formatMoney(config.price)}/h${config.teacherName ? ` · GV ${config.teacherName}` : ''}`}</div>)}</div>
+    : `${formatMoney(config.price)}/h${config.schedules.length ? ` · GV ${config.schedules.map((schedule) => schedule.teacherName).filter(Boolean).join(', ')}` : ''}`}</div>)}</div>
 }
 
 export default function StudentsPage() {
@@ -142,6 +144,7 @@ export default function StudentsPage() {
       offAt: String(form.get('offAt') || '') || null,
       type: types,
       isInvoice: form.get('isInvoice') === 'on',
+      ages: readChildAges(form),
     }
     data.invoiceAmount = Number(form.get('invoiceAmount')) || 0
     createMutation.mutate(data)
@@ -163,6 +166,7 @@ export default function StudentsPage() {
       offAt: String(form.get('offAt') || '') || null,
       type: readTypeConfigs(form),
       invoiceAmount: Number(form.get('invoiceAmount')) || 0,
+      ages: readChildAges(form),
     }
     updateMutation.mutate({ id: editingChild._id, data })
   }
@@ -218,6 +222,7 @@ export default function StudentsPage() {
             <Field label="Địa chỉ"><input name="address" className={inputClass} /></Field>
             <Field label="Link kế hoạch"><input name="planLink" type="url" placeholder="https://..." className={inputClass} /></Field>
             <ChildTypeEditor initial={[]} teachers={teachersQuery.data || []} />
+            <ChildAgeEditor />
             <Field label="Số tiền hóa đơn"><input name="invoiceAmount" type="number" min="0" step="1000" defaultValue={3240000} className={inputClass} /></Field>
             <label className="flex items-center gap-2 text-sm font-semibold sm:col-span-2"><input name="isInvoice" type="checkbox" />Xuất hóa đơn</label>
           </div>
@@ -226,11 +231,11 @@ export default function StudentsPage() {
       </Modal>
 
       <Modal open={Boolean(detailChild)} onClose={() => setDetailChild(null)} title={detailChild?.name || 'Thông tin trẻ'} description="Thông tin cá nhân và các khoản phí" className="max-h-[90vh] max-w-3xl overflow-y-auto">
-        {detailChild && <div className="grid gap-5"><dl className="m-0 grid gap-3 sm:grid-cols-2"><InfoItem label="Trạng thái" value={detailChild.status === 'NGHI_HOC' ? 'Đã nghỉ' : 'Đang học'} /><InfoItem label="Ngày nghỉ học" value={formatDate(detailChild.offAt)} /><InfoItem label="Ngày sinh" value={formatDate(detailChild.birthDate)} /><InfoItem label="Giới tính" value={detailChild.gender === 'male' ? 'Nam' : 'Nữ'} /><InfoItem label="Loại học" value={formatTypes(detailChild.type)} /><InfoItem label="Liên hệ" value={detailChild.phone || detailChild.email} /><InfoItem label="Tên bố" value={detailChild.fatherName} /><InfoItem label="Tên mẹ" value={detailChild.motherName} /><InfoItem label="Địa chỉ" value={detailChild.address} /><InfoItem label="Link kế hoạch" value={detailChild.planLink} /><InfoItem label="Xuất hóa đơn" value={detailChild.isInvoice ? 'Có' : 'Không'} /></dl><div><h4 className="mb-3 mt-0 text-sm font-bold">Học phí theo loại</h4><TypePricingSummary configs={detailChild.type} /></div></div>}
+        {detailChild && <div className="grid gap-5"><dl className="m-0 grid gap-3 sm:grid-cols-2"><InfoItem label="Trạng thái" value={detailChild.status === 'NGHI_HOC' ? 'Đã nghỉ' : 'Đang học'} /><InfoItem label="Ngày nghỉ học" value={formatDate(detailChild.offAt)} /><InfoItem label="Ngày sinh" value={formatDate(detailChild.birthDate)} /><InfoItem label="Giới tính" value={detailChild.gender === 'male' ? 'Nam' : 'Nữ'} /><InfoItem label="Loại học" value={formatTypes(detailChild.type)} /><InfoItem label="Liên hệ" value={detailChild.phone || detailChild.email} /><InfoItem label="Tên bố" value={detailChild.fatherName} /><InfoItem label="Tên mẹ" value={detailChild.motherName} /><InfoItem label="Địa chỉ" value={detailChild.address} /><InfoItem label="Link kế hoạch" value={detailChild.planLink} /><InfoItem label="Xuất hóa đơn" value={detailChild.isInvoice ? 'Có' : 'Không'} /></dl><div><h4 className="mb-3 mt-0 text-sm font-bold">Độ tuổi theo mục kế hoạch</h4><div className="grid gap-1 text-xs">{PLAN_CATEGORIES.map((category) => <span key={category.key}>{category.title}: <strong>{detailChild.ages.find((item) => item.id === category.key)?.age ?? 'Theo ngày sinh'}</strong>{detailChild.ages.some((item) => item.id === category.key) ? ' tuổi' : ''}</span>)}</div></div><div><h4 className="mb-3 mt-0 text-sm font-bold">Học phí theo loại</h4><TypePricingSummary configs={detailChild.type} /></div></div>}
       </Modal>
 
       <Modal open={Boolean(editingChild)} onClose={() => !updateMutation.isPending && setEditingChild(null)} title="Chỉnh sửa thông tin" description={editingChild?.name} className="max-h-[90vh] max-w-3xl overflow-y-auto">
-        {editingChild && <form onSubmit={handleEdit} className="grid gap-5"><div className="grid gap-4 sm:grid-cols-2"><Field label="Họ và tên"><input name="name" defaultValue={editingChild.name} required className={inputClass} /></Field><Field label="Giới tính"><select name="gender" defaultValue={editingChild.gender} className={inputClass}><option value="male">Nam</option><option value="female">Nữ</option></select></Field><Field label="Trạng thái"><select name="status" defaultValue={editingChild.status} className={inputClass}><option value="DANG_HOC">Đang học</option><option value="NGHI_HOC">Đã nghỉ</option></select></Field><Field label="Ngày nghỉ học"><input name="offAt" type="date" defaultValue={formatDateInput(editingChild.offAt)} className={inputClass} /></Field><Field label="Ngày sinh"><input name="birthDate" type="date" defaultValue={formatDateInput(editingChild.birthDate)} className={inputClass} /></Field><Field label="Số điện thoại"><input name="phone" defaultValue={editingChild.phone} className={inputClass} /></Field><Field label="Email"><input name="email" type="email" defaultValue={editingChild.email} className={inputClass} /></Field><Field label="Link kế hoạch"><input name="planLink" type="url" defaultValue={editingChild.planLink} placeholder="https://..." className={inputClass} /></Field><ChildTypeEditor initial={editingChild.type} teachers={teachersQuery.data || []} /><Field label="Số tiền hóa đơn"><input name="invoiceAmount" type="number" min="0" step="1000" defaultValue={editingChild.invoiceAmount} className={inputClass} /></Field></div><div className="flex justify-end gap-2 border-t border-border pt-4"><Button type="button" variant="secondary" onClick={() => setEditingChild(null)} disabled={updateMutation.isPending}>Hủy</Button><Button type="submit" disabled={updateMutation.isPending}>{updateMutation.isPending && <Loader2 size={16} className="spin" />}Lưu thay đổi</Button></div></form>}
+        {editingChild && <form onSubmit={handleEdit} className="grid gap-5"><div className="grid gap-4 sm:grid-cols-2"><Field label="Họ và tên"><input name="name" defaultValue={editingChild.name} required className={inputClass} /></Field><Field label="Giới tính"><select name="gender" defaultValue={editingChild.gender} className={inputClass}><option value="male">Nam</option><option value="female">Nữ</option></select></Field><Field label="Trạng thái"><select name="status" defaultValue={editingChild.status} className={inputClass}><option value="DANG_HOC">Đang học</option><option value="NGHI_HOC">Đã nghỉ</option></select></Field><Field label="Ngày nghỉ học"><input name="offAt" type="date" defaultValue={formatDateInput(editingChild.offAt)} className={inputClass} /></Field><Field label="Ngày sinh"><input name="birthDate" type="date" defaultValue={formatDateInput(editingChild.birthDate)} className={inputClass} /></Field><Field label="Số điện thoại"><input name="phone" defaultValue={editingChild.phone} className={inputClass} /></Field><Field label="Email"><input name="email" type="email" defaultValue={editingChild.email} className={inputClass} /></Field><Field label="Link kế hoạch"><input name="planLink" type="url" defaultValue={editingChild.planLink} placeholder="https://..." className={inputClass} /></Field><ChildTypeEditor initial={editingChild.type} teachers={teachersQuery.data || []} /><ChildAgeEditor initial={editingChild.ages} /><Field label="Số tiền hóa đơn"><input name="invoiceAmount" type="number" min="0" step="1000" defaultValue={editingChild.invoiceAmount} className={inputClass} /></Field></div><div className="flex justify-end gap-2 border-t border-border pt-4"><Button type="button" variant="secondary" onClick={() => setEditingChild(null)} disabled={updateMutation.isPending}>Hủy</Button><Button type="submit" disabled={updateMutation.isPending}>{updateMutation.isPending && <Loader2 size={16} className="spin" />}Lưu thay đổi</Button></div></form>}
       </Modal>
     </div>
   )

@@ -10,6 +10,7 @@ const DashboardPage = lazy(() => import('@/pages/app/dashboard'))
 const StudentsPage = lazy(() => import('@/pages/app/students'))
 const StudentHistoryPage = lazy(() => import('@/pages/app/students/history'))
 const StudentReceiptsPage = lazy(() => import('@/pages/app/students/receipts'))
+const StudentPlansPage = lazy(() => import('@/pages/app/students/plans'))
 const TeachersPage = lazy(() => import('@/pages/app/teachers'))
 const TeacherHistoryPage = lazy(() => import('@/pages/app/teachers/history'))
 const TeacherPaymentsPage = lazy(() => import('@/pages/app/teachers/payments'))
@@ -56,6 +57,7 @@ const router = createBrowserRouter([
       { path: 'students', element: <StudentsPage /> },
       { path: 'students/history', element: <StudentHistoryPage /> },
       { path: 'students/receipts', element: <StudentReceiptsPage /> },
+      { path: 'students/plans', element: <StudentPlansPage /> },
       { path: 'teachers', element: <TeachersPage /> },
       { path: 'teachers/history', element: <TeacherHistoryPage /> },
       { path: 'teachers/payments', element: <TeacherPaymentsPage /> },

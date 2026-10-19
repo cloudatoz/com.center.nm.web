@@ -8,11 +8,12 @@ import { Card, CardHeader } from '@/components/ui/card'
 import { Modal } from '@/components/ui/modal'
 import { PageHeader } from '@/components/ui/page-header'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-import { boardingTotal, configForAttendance, lessonConfigType } from '@/lib/child-pricing'
+import { boardingTotal, configForAttendance, lessonConfigType, scheduleForDate } from '@/lib/child-pricing'
 import { getAccountBanks, getVietQrImage } from '@/services/apis/account-bank-api'
 import { createAttendance, deleteAttendanceDay, type AttendanceType, getMonthlyAttendances, type MonthlyAttendance, setAttendanceCompleted, updateAttendanceDay } from '@/services/apis/attendance-api'
 import { type Child, type ChildTypeCode, getChildren, updateChild } from '@/services/apis/children-api'
 import { getTeachers } from '@/services/apis/teachers-api'
+import { ChildAgeEditor, readChildAges } from './child-age-editor'
 import { ChildTypeEditor, readTypeConfigs } from './child-type-editor'
 
 const MONTHS = Array.from({ length: 12 }, (_, index) => index + 1)
@@ -203,7 +204,7 @@ export default function StudentHistoryPage() {
     mutationFn: ({ child, typeCode, teacherId, teacherPrice }: { child: Child; typeCode: ChildTypeCode; teacherId: string | null; teacherPrice: number }) =>
       updateChild(child._id, {
         type: child.type.map((config) => config.type === typeCode
-          ? { ...config, teacherId, teacherPrice }
+          ? { ...config, teacherPrice, schedules: teacherId ? [{ ...(config.schedules[0] || { scheduleInWeek: [] }), teacherId, teacherName: '', teacherPrice }, ...config.schedules.slice(1)] : config.schedules.slice(1) }
           : config),
       }),
     onSuccess: (updated) => {
@@ -267,6 +268,7 @@ export default function StudentHistoryPage() {
       type: childTypes,
       isInvoice: form.get('isInvoice') === 'on',
       invoiceAmount: Math.max(Number(form.get('invoiceAmount')) || 0, 0),
+      ages: readChildAges(form),
     }
     updateChildMutation.mutate({ id: editingChild._id, data })
   }
@@ -275,7 +277,7 @@ export default function StudentHistoryPage() {
     for (const attendance of attendanceQuery.data || []) {
       const child = typeof attendance.children === 'string' ? null : attendance.children
       for (const config of child?.type || []) {
-        if (config.teacherId && config.teacherName) teachers.set(config.teacherId, config.teacherName)
+        for (const schedule of config.schedules) if (schedule.teacherId && schedule.teacherName) teachers.set(schedule.teacherId, schedule.teacherName)
       }
       for (const day of attendance.days) {
         if (day.teacherId && day.teacherName) teachers.set(day.teacherId, day.teacherName)
@@ -289,7 +291,7 @@ export default function StudentHistoryPage() {
     const childIds = new Set<string>()
     for (const attendance of attendanceQuery.data || []) {
       const child = typeof attendance.children === 'string' ? null : attendance.children
-      const teacherNames = [...(child?.type || []).map((config) => config.teacherName), ...attendance.days.map((day) => day.teacherName)]
+      const teacherNames = [...(child?.type || []).flatMap((config) => config.schedules.map((schedule) => schedule.teacherName)), ...attendance.days.map((day) => day.teacherName)]
         .filter(Boolean).join(' ').toLocaleLowerCase('vi')
       if (teacherNames.includes(keyword)) childIds.add(typeof attendance.children === 'string' ? attendance.children : attendance.children._id)
     }
@@ -300,7 +302,7 @@ export default function StudentHistoryPage() {
       const child = typeof attendance.children === 'string' ? null : attendance.children
       const teacherKeyword = teacherFilter.trim().toLocaleLowerCase('vi')
       if (!teacherKeyword) return true
-      const teacherNames = [...(child?.type || []).map((config) => config.teacherName), ...attendance.days.map((day) => day.teacherName)]
+      const teacherNames = [...(child?.type || []).flatMap((config) => config.schedules.map((schedule) => schedule.teacherName)), ...attendance.days.map((day) => day.teacherName)]
         .filter(Boolean).join(' ').toLocaleLowerCase('vi')
       return teacherNames.includes(teacherKeyword)
     }).sort((left, right) => {
@@ -593,11 +595,12 @@ export default function StudentHistoryPage() {
                             const date = `${month}-${String(day).padStart(2, '0')}`
                             if (!await confirmEditingFromCell(attendance, child?.name || `Trẻ #${childId}`)) return
                             if (item) {
-                              openDayEditor(attendance, date, item, pricingConfig?.teacherId)
+                              openDayEditor(attendance, date, item, scheduleForDate(pricingConfig, date)?.teacherId)
                               return
                             }
-                            if (needsTeacher(attendance.type) && !item && !pricingConfig?.teacherId) return toast.error('Trẻ chưa có giáo viên mặc định')
-                            dayMutation.mutate({ attendanceId: attendance._id, childId, date, attendanceType: attendance.type, attended: Boolean(item), defaultTeacherId: pricingConfig?.teacherId })
+                            const scheduledTeacherId = scheduleForDate(pricingConfig, date)?.teacherId
+                            if (needsTeacher(attendance.type) && !item && !scheduledTeacherId) return toast.error('Trẻ chưa có giáo viên trong lịch ngày này')
+                            dayMutation.mutate({ attendanceId: attendance._id, childId, date, attendanceType: attendance.type, attended: Boolean(item), defaultTeacherId: scheduledTeacherId })
                           }} className={`mx-auto grid min-h-8 min-w-8 cursor-pointer place-items-center rounded-lg px-1 py-1 text-[10px] font-bold transition ${item ? item.absent ? 'bg-amber-50 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300' : 'bg-emerald-50 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300' : 'text-muted/40'} ${editingIds.has(attendance._id) ? 'ring-1 ring-primary/30 hover:bg-primary/10' : 'hover:bg-primary/5 hover:ring-1 hover:ring-primary/20'} disabled:opacity-70`} title={editingIds.has(attendance._id) ? item ? 'Bấm để sửa buổi học' : 'Bấm để thêm ngày học' : `Bấm để điểm danh bé ${child?.name || childId}`}>{item ? isFullDayType(attendance.type) ? <span><span className="block">{item.absent ? 'Nghỉ' : <Check size={15} />}</span>{!item.absent && item.teacherName && <span className="mt-0.5 block max-w-20 truncate font-medium">{item.teacherName}</span>}{item.refund > 0 && <span className="mt-0.5 block text-red-600">Hoàn {formatMoney(item.refund)}</span>}</span> : <span><span className="block">{item.absent ? 'Nghỉ' : `${item.lessonType || 'HỌC'} · ${item.spendTime}h`}</span>{!item.absent && item.teacherName && <span className="mt-0.5 block max-w-20 truncate font-medium">{item.teacherName}</span>}{item.refund > 0 && <span className="mt-0.5 block text-red-600">Hoàn {formatMoney(item.refund)}</span>}</span> : '—'}</button>
                         </TableCell>
                       )
@@ -677,9 +680,10 @@ export default function StudentHistoryPage() {
                             const item = attendanceByDay.get(day)
                             return <button key={date} type="button" disabled={dayMutation.isPending} onClick={async () => {
                               if (!await confirmEditingFromCell(attendance, child?.name || `Trẻ #${childId}`)) return
-                              if (item) return openDayEditor(attendance, date, item, pricingConfig?.teacherId)
-                              if (needsTeacher(attendance.type) && !pricingConfig?.teacherId) return toast.error('Trẻ chưa có giáo viên mặc định')
-                              dayMutation.mutate({ attendanceId: attendance._id, childId, date, attendanceType: attendance.type, attended: false, defaultTeacherId: pricingConfig?.teacherId })
+                              const scheduledTeacherId = scheduleForDate(pricingConfig, date)?.teacherId
+                              if (item) return openDayEditor(attendance, date, item, scheduledTeacherId)
+                              if (needsTeacher(attendance.type) && !scheduledTeacherId) return toast.error('Trẻ chưa có giáo viên trong lịch ngày này')
+                              dayMutation.mutate({ attendanceId: attendance._id, childId, date, attendanceType: attendance.type, attended: false, defaultTeacherId: scheduledTeacherId })
                             }} className={`relative flex min-h-16 min-w-0 cursor-pointer flex-col overflow-hidden rounded-md border p-1 pt-5 text-left transition sm:min-h-20 sm:p-1.5 sm:pt-6 lg:min-h-16 lg:pt-6 ${item ? item.absent ? 'border-amber-300 bg-amber-50 text-amber-800 dark:border-amber-500/40 dark:bg-amber-500/15 dark:text-amber-300' : 'border-emerald-300 bg-emerald-50 text-emerald-800 dark:border-emerald-500/40 dark:bg-emerald-500/15 dark:text-emerald-300' : 'border-border bg-surface'} ${isWeekend ? '!bg-slate-100 dark:!bg-slate-800/80' : ''} hover:border-primary/50 hover:ring-1 hover:ring-primary/20 disabled:opacity-80`} title={editingIds.has(attendance._id) ? item ? 'Bấm để chỉnh sửa' : 'Bấm để điểm danh' : `Bấm để điểm danh bé ${child?.name || childId}`}>
                               <span className="absolute left-1 top-1 text-sm font-bold sm:left-1.5 sm:text-base lg:text-lg">{day}</span>{item && <span className="mt-auto block min-w-0 text-[10px] font-semibold leading-snug sm:text-xs lg:text-sm"><span className="block">{item.absent ? 'Nghỉ' : isFullDayType(attendance.type) ? 'Học' : `${item.lessonType || 'HỌC'} · ${item.spendTime}h`}</span>{!item.absent && item.teacherName && <span className="block truncate opacity-80">{item.teacherName}</span>}{item.refund > 0 && <span className="block truncate text-red-600">Hoàn {formatMoney(item.refund)}</span>}{item.notes && item.notes.trim().toLocaleUpperCase('vi') !== (item.lessonType || 'HỌC').trim().toLocaleUpperCase('vi') && <span className="block truncate text-[10px] font-normal opacity-75 sm:text-[11px] lg:text-xs">{item.notes}</span>}</span>}
                             </button>
@@ -706,6 +710,7 @@ export default function StudentHistoryPage() {
             <label className="grid min-w-0 content-start gap-1.5 text-sm font-semibold sm:col-span-2 lg:col-span-3">Link kế hoạch<input name="planLink" type="url" defaultValue={editingChild.planLink} placeholder="https://..." className="h-10 w-full min-w-0 rounded-xl border border-border bg-app-background px-3 font-normal outline-none focus:border-primary" /></label>
           </section>
           <ChildTypeEditor initial={editingChild.type} teachers={teachersQuery.data || []} />
+          <ChildAgeEditor initial={editingChild.ages} />
           <section className="grid items-end gap-4 rounded-xl border border-border bg-surface-muted/50 p-3 sm:grid-cols-2 sm:p-4">
             <label className="grid min-w-0 gap-1.5 text-sm font-semibold">Số tiền hóa đơn<input name="invoiceAmount" type="number" min="0" step="1000" defaultValue={editingChild.invoiceAmount} className="h-10 w-full min-w-0 rounded-xl border border-border bg-app-background px-3 font-normal outline-none focus:border-primary" /></label>
             <label className="flex h-10 items-center gap-3 rounded-xl border border-border bg-app-background px-3 text-sm font-semibold"><input name="isInvoice" type="checkbox" defaultChecked={editingChild.isInvoice} className="h-4 w-4 accent-primary" />Xuất hóa đơn</label>
@@ -738,7 +743,7 @@ export default function StudentHistoryPage() {
           </label>
           <div ref={receiptRef} className={`mx-auto overflow-hidden bg-white text-slate-900 ${copyingReceipt ? 'w-[700px] max-w-none p-5' : 'w-full max-w-[700px] p-3 sm:p-5'}`}>
             <div className="border-b-2 border-emerald-500 pb-3 text-center"><h2 className="m-0 text-2xl font-bold">PHIẾU THÔNG TIN HỌC</h2></div>
-            <div className={`mt-3 grid gap-3 rounded-xl bg-slate-50 p-3 sm:grid-cols-[1fr_auto] sm:gap-4 ${copyingReceipt ? 'grid-cols-[1fr_auto] gap-4' : 'grid-cols-1'}`}><div className="min-w-0"><strong className={`block break-words sm:text-xl ${copyingReceipt ? 'text-xl' : 'text-lg'}`}>{receiptData.child?.name || `Trẻ #${receiptGroup?.childId}`}</strong><span className={`block break-words text-slate-600 sm:text-sm ${copyingReceipt ? 'text-sm' : 'text-xs'}`}>Ngày sinh: {formatBirthDate(receiptData.child?.birthDate)} · GV: {receiptData.child?.type.map((config) => config.teacherName).filter(Boolean).join(', ') || 'Chưa cập nhật'}</span></div><div className={`${copyingReceipt ? 'text-right' : 'text-left'} sm:text-right`}><strong className={`block text-emerald-600 sm:text-2xl ${copyingReceipt ? 'text-2xl' : 'text-xl'}`}>{receiptData.days.length} buổi</strong>{receiptData.totalHours > 0 && <span className="text-sm text-slate-500">{receiptData.totalHours}h học</span>}</div></div>
+            <div className={`mt-3 grid gap-3 rounded-xl bg-slate-50 p-3 sm:grid-cols-[1fr_auto] sm:gap-4 ${copyingReceipt ? 'grid-cols-[1fr_auto] gap-4' : 'grid-cols-1'}`}><div className="min-w-0"><strong className={`block break-words sm:text-xl ${copyingReceipt ? 'text-xl' : 'text-lg'}`}>{receiptData.child?.name || `Trẻ #${receiptGroup?.childId}`}</strong><span className={`block break-words text-slate-600 sm:text-sm ${copyingReceipt ? 'text-sm' : 'text-xs'}`}>Ngày sinh: {formatBirthDate(receiptData.child?.birthDate)} · GV: {receiptData.child?.type.flatMap((config) => config.schedules.map((schedule) => schedule.teacherName)).filter(Boolean).join(', ') || 'Chưa cập nhật'}</span></div><div className={`${copyingReceipt ? 'text-right' : 'text-left'} sm:text-right`}><strong className={`block text-emerald-600 sm:text-2xl ${copyingReceipt ? 'text-2xl' : 'text-xl'}`}>{receiptData.days.length} buổi</strong>{receiptData.totalHours > 0 && <span className="text-sm text-slate-500">{receiptData.totalHours}h học</span>}</div></div>
             <div className={`mt-3 grid gap-2 ${receiptData.totalRefund > 0 ? 'grid-cols-2' : 'grid-cols-1'}`}><div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3"><span className="text-xs font-semibold text-emerald-700">Tổng học phí</span><strong className="block text-base text-emerald-700">{formatMoney(receiptData.totals.revenue)}</strong></div>{receiptData.totalRefund > 0 && <div className="rounded-lg border border-red-200 bg-red-50 p-3"><span className="text-xs font-semibold text-red-700">Hoàn tiền</span><strong className="block text-base text-red-700">{formatMoney(receiptData.totalRefund)}</strong></div>}</div>
             <h3 className="mb-1.5 mt-3 text-sm font-bold uppercase text-slate-700">Lịch học Tháng {selectedMonth}/{selectedYear}</h3>
             <div className="grid gap-4">{receiptData.groups.map((group) => <section key={group.type} className="overflow-hidden rounded-lg border border-slate-300">

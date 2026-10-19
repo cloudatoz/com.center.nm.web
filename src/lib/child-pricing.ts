@@ -31,6 +31,15 @@ export function configForAttendance(child: Pick<Child, 'type'> | null | undefine
   return getTypeConfig(child, type) || (attendanceType === 'THEO_BUOI' ? getTypeConfig(child, 'CA_NHAN') : undefined)
 }
 
+const DAY_NAMES = ['chủ nhật', 'thứ 2', 'thứ 3', 'thứ 4', 'thứ 5', 'thứ 6', 'thứ 7']
+
+export function scheduleForDate(config: ChildTypeConfig | null | undefined, date: string) {
+  if (!config?.schedules.length) return undefined
+  const [year, month, day] = date.slice(0, 10).split('-').map(Number)
+  const dayName = DAY_NAMES[new Date(year, month - 1, day).getDay()]
+  return config.schedules.find((schedule) => schedule.scheduleInWeek.includes(dayName)) || config.schedules[0]
+}
+
 export function supportsAttendanceType(child: Pick<Child, 'type'>, attendanceType: AttendanceType) {
   if (attendanceType === 'THEO_BUOI') return child.type.some((item) => item.type.startsWith('CA_NHAN'))
   return child.type.some((item) => item.type === attendanceType)
@@ -44,6 +53,7 @@ export const emptyTypeConfig = (type: ChildTypeCode): ChildTypeConfig => ({
   teacherName: '',
   teacherPrice: 0,
   scheduleInWeek: [],
+  schedules: [],
 })
 
 export function boardingTotal(child: Pick<Child, 'type'> | null | undefined) {

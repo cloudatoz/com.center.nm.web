@@ -5,6 +5,12 @@ export const childTypeCodeSchema = z.enum([
   'CA_NGAY', 'CA_NHAN', 'TAI_NHA', 'SHADOW',
   'CA_NHAN_DRAW', 'CA_NHAN_LANGUAGE', 'CA_NHAN_MOVEMENT',
 ])
+export const childScheduleSchema = z.object({
+  teacherId: z.coerce.string().optional().nullable(),
+  teacherName: z.string().optional().default(''),
+  teacherPrice: z.number().optional().default(0),
+  scheduleInWeek: z.array(z.string()).optional().default([]),
+})
 export const childTypeConfigSchema = z.object({
   type: childTypeCodeSchema,
   price: z.number().optional().default(0),
@@ -17,7 +23,36 @@ export const childTypeConfigSchema = z.object({
   teacherName: z.string().optional().default(''),
   teacherPrice: z.number().optional().default(0),
   scheduleInWeek: z.array(z.string()).optional().default([]),
+  schedules: z.array(childScheduleSchema).optional().default([]),
+}).transform((config) => {
+  const schedules = config.schedules.length ? config.schedules : (config.teacherId || config.scheduleInWeek.length ? [{
+    teacherId: config.teacherId,
+    teacherName: config.teacherName,
+    teacherPrice: config.teacherPrice,
+    scheduleInWeek: config.scheduleInWeek,
+  }] : [])
+  const primary = schedules[0]
+  return {
+    ...config,
+    schedules,
+    teacherId: primary?.teacherId || null,
+    teacherName: primary?.teacherName || '',
+    teacherPrice: primary?.teacherPrice ?? config.teacherPrice,
+    scheduleInWeek: [...new Set(schedules.flatMap((schedule) => schedule.scheduleInWeek))],
+  }
 })
+export const childAgeSchema = z.object({
+  id: z.string(),
+  age: z.number().min(0),
+})
+const defaultChildAges = [
+  'NHAN_THUC_NGON_NGU',
+  'NHAN_THUC_TU_DUY_MAU_SAC',
+  'TUONG_TAC',
+  'BAT_CHUOC',
+  'VAN_DONG_TINH',
+  'VAN_DONG_THO',
+].map((id) => ({ id, age: 3 }))
 
 const childSchema = z.object({
   _id: z.coerce.string(),
@@ -39,11 +74,14 @@ const childSchema = z.object({
   invoiceAmount: z.number().optional().default(0),
   isInvoice: z.boolean().optional().default(false),
   isSend: z.array(z.string()).optional().default([]),
+  ages: z.array(childAgeSchema).optional().transform((ages) => ages?.length ? ages : defaultChildAges),
 })
 
 export type Child = z.infer<typeof childSchema>
 export type ChildTypeCode = z.infer<typeof childTypeCodeSchema>
 export type ChildTypeConfig = z.infer<typeof childTypeConfigSchema>
+export type ChildSchedule = z.infer<typeof childScheduleSchema>
+export type ChildAge = z.infer<typeof childAgeSchema>
 export type CreateChildInput = Partial<Omit<Child, '_id'>> & Pick<Child, 'name' | 'gender' | 'avatar' | 'type'>
 
 export async function getChildren(): Promise<Child[]> {
