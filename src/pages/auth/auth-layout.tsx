@@ -18,15 +18,7 @@ export function AuthLayout({ children }: { children: ReactNode }) {
         </div>
 
         <footer className="flex flex-col sm:flex-row items-center justify-between gap-2 border-t border-border/60 pt-6 text-[12px] text-muted">
-          <span>© 2026 VG Operations Inc. Internal Admin Portal.</span>
-          <div className="flex items-center gap-4">
-            <span className="hover:text-text-main cursor-pointer transition-colors">
-              Security Policy
-            </span>
-            <span className="hover:text-text-main cursor-pointer transition-colors">
-              Audit Notice
-            </span>
-          </div>
+          <span>© 2026 NM Quản lý</span>
         </footer>
       </section>
 

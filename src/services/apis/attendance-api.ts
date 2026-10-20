@@ -46,6 +46,7 @@ const monthlyAttendanceSchema = z.object({
   month: z.string(),
   type: z.preprocess((value) => value === 'BAN_TRU' ? 'CA_NGAY' : value, z.enum(['THEO_BUOI', 'CA_NGAY', 'TAI_NHA', 'SHADOW'])),
   days: z.array(attendanceDaySchema).default([]),
+  note: z.string().optional().default(''),
   isCompleted: z.boolean().default(false),
 })
 
@@ -100,5 +101,10 @@ export async function updateAttendanceDay(id: string, date: string, spendTime: n
 
 export async function setAttendanceCompleted(id: string, isCompleted: boolean) {
   const response = await apiClient.put(`/v1/attendance/${id}`, { isCompleted })
+  return parseMonthlyAttendance(response.data)
+}
+
+export async function updateAttendanceNote(id: string, note: string) {
+  const response = await apiClient.put(`/v1/attendance/${id}`, { note })
   return parseMonthlyAttendance(response.data)
 }

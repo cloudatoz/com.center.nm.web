@@ -27,7 +27,7 @@ const formatPlanDate = (value: string) => {
   const weekday = WEEKDAY_SHORT[date.getDay()]
   const day = String(date.getDate()).padStart(2, '0')
   const month = String(date.getMonth() + 1).padStart(2, '0')
-  return { weekday, label: `${weekday} ${day}/${month}`, isWeekend: date.getDay() === 0 || date.getDay() === 6 }
+  return { weekday, label: `${weekday} ${day}/${month}`, isSaturday: date.getDay() === 6, isSunday: date.getDay() === 0 }
 }
 const emptyItems = () => PLAN_CATEGORIES.map((item) => ({ ...item, content: '' }))
 const CATEGORY_COLORS: Record<string, string> = {
@@ -203,9 +203,9 @@ export default function StudentPlansPage() {
                 <TableBody className="divide-y-0">
                   {monthlyDays.map((day) => {
                     const dayDate = dateKey(day.date)
-                    const { label, isWeekend } = formatPlanDate(dayDate)
+                    const { label, isSaturday, isSunday } = formatPlanDate(dayDate)
                     return <TableRow key={dayDate} className="align-top border-b-2 border-primary/35 last:border-b-0">
-                      <TableCell className={`align-top ${isWeekend ? 'bg-amber-300/80 dark:bg-amber-500/40' : 'bg-amber-50 dark:bg-amber-500/10'}`}>
+                      <TableCell className={`align-top ${isSaturday || isSunday ? 'bg-amber-200/80 text-amber-900 dark:bg-amber-500/30 dark:text-amber-200' : 'bg-amber-50 dark:bg-amber-500/10'}`}>
                         <div className="grid gap-2">
                           <strong className="whitespace-nowrap leading-snug">{label}</strong>
                         </div>

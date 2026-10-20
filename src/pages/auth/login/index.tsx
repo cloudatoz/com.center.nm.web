@@ -14,16 +14,11 @@ export default function LoginPage() {
     <AuthLayout>
       <div className="w-full">
         <div>
-          <div className="inline-flex items-center gap-1.5 rounded-full border border-primary/20 bg-primary/10 px-2.5 py-0.5 text-[11px] font-bold tracking-wide uppercase text-primary mb-3">
-            <ShieldAlert size={13} />
-            Restricted Access
-          </div>
+          
           <h1 className="m-0 font-display text-3xl sm:text-[36px] font-extrabold leading-[1.1] tracking-tight text-text-main">
-            Admin Sign In
+            Đăng nhập
           </h1>
-          <p className="mt-2 text-sm sm:text-[15px] leading-relaxed text-muted">
-            Enter administrative credentials to access operations telemetry and governance tools.
-          </p>
+          
         </div>
 
         <form
@@ -33,7 +28,7 @@ export default function LoginPage() {
             form.submit()
           }}
         >
-          <Field label="Admin email" error={form.errors.email}>
+          <Field label="Tài khoản" error={form.errors.email}>
             <div className="relative">
               <Mail className="absolute left-3.5 top-3 text-muted pointer-events-none" size={16} />
               <Input
@@ -47,7 +42,7 @@ export default function LoginPage() {
             </div>
           </Field>
 
-          <Field label="Password" error={form.errors.password}>
+          <Field label="Mật khẩu" error={form.errors.password}>
             <div className="relative">
               <Lock className="absolute left-3.5 top-3 text-muted pointer-events-none" size={16} />
               <Input
@@ -71,16 +66,9 @@ export default function LoginPage() {
 
           <div className="flex items-center justify-between text-xs pt-0.5">
             <label className="flex items-center gap-2 cursor-pointer select-none text-muted hover:text-text-main transition-colors">
-              <input
-                type="checkbox"
-                checked={rememberMe}
-                onChange={(e) => setRememberMe(e.target.checked)}
-                className="h-4 w-4 rounded border-border text-primary focus:ring-primary/20 accent-primary cursor-pointer"
-              />
-              <span>Remember this workstation</span>
             </label>
             <span className="text-muted hover:text-primary cursor-pointer transition-colors font-medium">
-              Trouble logging in?
+              Có vấn đề khi đăng nhập?
             </span>
           </div>
 
@@ -94,7 +82,7 @@ export default function LoginPage() {
             ) : (
               <ArrowRight size={18} />
             )}
-            Sign in to Console
+            Đăng nhập
           </Button>
         </form>
       </div>
