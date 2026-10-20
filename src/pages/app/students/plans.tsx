@@ -5,6 +5,7 @@ import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Card, CardHeader } from '@/components/ui/card'
 import { PageHeader } from '@/components/ui/page-header'
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import age3Csv from '@/data/plan-templates/plan-age-3.csv?raw'
 import age4Csv from '@/data/plan-templates/plan-age-4.csv?raw'
 import age5Csv from '@/data/plan-templates/plan-age-5.csv?raw'
@@ -20,7 +21,23 @@ const currentMonth = () => {
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
 }
 const dateKey = (value: string) => value.slice(0, 10)
+const WEEKDAY_SHORT = ['CN', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7']
+const formatPlanDate = (value: string) => {
+  const date = new Date(`${value}T00:00:00`)
+  const weekday = WEEKDAY_SHORT[date.getDay()]
+  const day = String(date.getDate()).padStart(2, '0')
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  return { weekday, label: `${weekday} ${day}/${month}`, isWeekend: date.getDay() === 0 || date.getDay() === 6 }
+}
 const emptyItems = () => PLAN_CATEGORIES.map((item) => ({ ...item, content: '' }))
+const CATEGORY_COLORS: Record<string, string> = {
+  NHAN_THUC_NGON_NGU: 'bg-sky-50 text-sky-800 dark:bg-sky-500/15 dark:text-sky-200',
+  NHAN_THUC_TU_DUY_MAU_SAC: 'bg-violet-50 text-violet-800 dark:bg-violet-500/15 dark:text-violet-200',
+  TUONG_TAC: 'bg-amber-50 text-amber-800 dark:bg-amber-500/15 dark:text-amber-200',
+  BAT_CHUOC: 'bg-rose-50 text-rose-800 dark:bg-rose-500/15 dark:text-rose-200',
+  VAN_DONG_TINH: 'bg-emerald-50 text-emerald-800 dark:bg-emerald-500/15 dark:text-emerald-200',
+  VAN_DONG_THO: 'bg-orange-50 text-orange-800 dark:bg-orange-500/15 dark:text-orange-200',
+}
 
 const parseCsvLine = (line: string) => {
   const values: string[] = []
@@ -179,7 +196,6 @@ export default function StudentPlansPage() {
       <div className="flex flex-wrap gap-3 border-b border-border p-4 sm:px-6">
         <label className="grid gap-1 text-xs font-semibold text-muted">Tháng<select value={monthNumber} onChange={(event) => changeMonth(`${year}-${String(event.target.value).padStart(2, '0')}`)} className="h-9 rounded-lg border border-border bg-surface px-3 text-sm text-text-main">{MONTHS.map((value) => <option key={value} value={value}>Tháng {value}</option>)}</select></label>
         <label className="grid gap-1 text-xs font-semibold text-muted">Năm<select value={year} onChange={(event) => changeMonth(`${event.target.value}-${String(monthNumber).padStart(2, '0')}`)} className="h-9 rounded-lg border border-border bg-surface px-3 text-sm text-text-main">{YEARS.map((value) => <option key={value} value={value}>Năm {value}</option>)}</select></label>
-        {selectedChildId && <Button type="button" className="ml-auto self-end" disabled={!isDirty || saveMutation.isPending} onClick={() => saveMutation.mutate()}>{saveMutation.isPending ? <Loader2 size={16} className="spin" /> : <Save size={16} />}Lưu kế hoạch</Button>}
       </div>
       <div className="grid min-w-0 lg:grid-cols-[15rem_minmax(0,1fr)]">
         <aside className="border-b border-border bg-surface-muted/50 p-3 lg:border-b-0 lg:border-r">
@@ -192,25 +208,45 @@ export default function StudentPlansPage() {
           {selectedChildId && plansQuery.isError && <div className="rounded-xl bg-red-50 p-4 text-sm text-red-700">Không thể tải kế hoạch của trẻ.</div>}
           {selectedChildId && plansQuery.isSuccess && <div className="grid gap-5">
             <section className="grid gap-3 rounded-xl border border-border bg-surface-muted/40 p-3 sm:p-4">
-              <div className="flex flex-wrap items-center gap-2"><div className="mr-auto"><strong className="block">Toàn bộ kế hoạch Tháng {monthNumber}/{year}</strong><span className="text-xs text-muted">Đủ {totalDays} ngày · {populatedDayCount} ngày có nội dung · {selectedChild?.name}</span></div><Button type="button" size="sm" variant={isViewMode ? 'primary' : 'secondary'} onClick={() => setIsViewMode((current) => !current)}>{isViewMode ? <Pencil size={14} /> : <Eye size={14} />}{isViewMode ? 'Chỉnh sửa' : 'Xem'}</Button></div>
-              <div className="grid gap-3">{monthlyDays.map((day) => {
-                const dayDate = dateKey(day.date)
-                const hasContent = day.items.some((item) => item.content.trim())
-                const formattedDate = new Date(`${dayDate}T00:00:00`).toLocaleDateString('vi-VN', { weekday: 'long', day: '2-digit', month: '2-digit', year: 'numeric' })
-                return <article key={dayDate} className="overflow-hidden rounded-xl border border-border bg-surface">
-                  <div className="flex flex-wrap items-center gap-2 border-b border-border bg-primary/5 px-3 py-2"><strong className="mr-auto text-sm capitalize">{formattedDate}</strong>{!isViewMode && <><Button type="button" size="sm" variant="secondary" onClick={() => copyPreviousDay(dayDate)}><Copy size={13} />Sao chép ngày trước</Button>{hasContent && <Button type="button" size="sm" variant="danger" onClick={() => clearDay(dayDate)}><Trash2 size={13} />Xóa nội dung</Button>}</>}</div>
-                  {isViewMode ? <div className="grid gap-1 p-3">{hasContent ? day.items.filter((item) => item.content.trim()).map((item) => <p key={item.key} className="m-0 whitespace-pre-wrap break-words text-sm leading-relaxed">{item.content}</p>) : <span className="text-sm italic text-muted">Chưa có nội dung</span>}</div> : <div className="grid gap-px bg-border md:grid-cols-2">{day.items.map((item) => {
-                    const inputId = `plan-${dayDate}-${item.key}`
-                    return <div key={item.key} className="grid min-w-0 gap-1.5 bg-surface p-3 text-sm font-semibold">
-                      <div className="flex min-w-0 items-center justify-between gap-2"><label htmlFor={inputId} className="min-w-0">{item.title}</label><Button type="button" size="sm" variant="secondary" className="shrink-0" onClick={() => fillRandomExample(dayDate, item.key)}>Điền mẫu</Button></div>
-                      <textarea id={inputId} value={item.content} onChange={(event) => updateContent(dayDate, item.key, event.target.value)} rows={2} placeholder="Nhập nội dung hoạt động..." className="min-h-20 w-full resize-y rounded-lg border border-border bg-app-background p-2.5 text-sm font-normal leading-relaxed outline-none focus:border-primary" />
-                    </div>
-                  })}</div>
-                  }
-                </article>
-              })}</div>
+              <div className="flex flex-wrap items-center gap-2"><div className="mr-auto"><strong className="block">Toàn bộ kế hoạch Tháng {monthNumber}/{year}</strong><span className="text-xs text-muted">Đủ {totalDays} ngày · {populatedDayCount} ngày có nội dung · {selectedChild?.name}</span></div><Button type="button" size="sm" variant={isViewMode ? 'primary' : 'secondary'} onClick={() => setIsViewMode((current) => !current)}>{isViewMode ? <Pencil size={14} /> : <Eye size={14} />}{isViewMode ? 'Chỉnh sửa' : 'Xem'}</Button><Button type="button" size="sm" disabled={!isDirty || saveMutation.isPending} onClick={() => saveMutation.mutate()}>{saveMutation.isPending ? <Loader2 size={14} className="spin" /> : <Save size={14} />}Lưu kế hoạch</Button></div>
+              <Table className="min-w-[36rem]" containerClassName="max-h-[calc(100vh-16rem)] overflow-auto rounded-xl border border-border">
+                <TableHeader className="sticky top-0 z-20 bg-surface-muted shadow-sm">
+                  <TableRow>
+                    <TableHead className="w-28 min-w-24 whitespace-nowrap bg-surface-muted">Ngày</TableHead>
+                    <TableHead className="bg-surface-muted">Nội dung</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody className="divide-y-0">
+                  {monthlyDays.map((day) => {
+                    const dayDate = dateKey(day.date)
+                    const hasContent = day.items.some((item) => item.content.trim())
+                    const { label, isWeekend } = formatPlanDate(dayDate)
+                    return <TableRow key={dayDate} className="align-top border-b-2 border-primary/35 last:border-b-0">
+                      <TableCell className={`align-top ${isWeekend ? 'bg-amber-300/80 dark:bg-amber-500/40' : 'bg-amber-50 dark:bg-amber-500/10'}`}>
+                        <div className="grid gap-2">
+                          <strong className="whitespace-nowrap leading-snug">{label}</strong>
+                          {!isViewMode && <div className="grid gap-1.5">
+                            <Button type="button" size="sm" variant="secondary" onClick={() => copyPreviousDay(dayDate)}><Copy size={13} />Sao chép ngày trước</Button>
+                            {hasContent && <Button type="button" size="sm" variant="danger" onClick={() => clearDay(dayDate)}><Trash2 size={13} />Xóa nội dung</Button>}
+                          </div>}
+                        </div>
+                      </TableCell>
+                      <TableCell className="align-top">
+                        {isViewMode
+                          ? <div className="grid gap-1.5">{day.items.map((item) => <p key={item.key} className={`m-0 rounded-lg px-2.5 py-1.5 whitespace-pre-wrap break-words text-sm leading-relaxed ${CATEGORY_COLORS[item.key]}`}><strong className="mr-1.5">{item.title}:</strong>{item.content}</p>)}</div>
+                          : <div className="grid gap-3">{day.items.map((item) => {
+                            const inputId = `plan-${dayDate}-${item.key}`
+                            return <div key={item.key} className={`grid min-w-0 gap-1.5 rounded-lg p-2.5 text-sm font-semibold ${CATEGORY_COLORS[item.key]}`}>
+                              <div className="flex min-w-0 items-center justify-between gap-2"><label htmlFor={inputId} className="min-w-0">{item.title}</label><Button type="button" size="sm" variant="secondary" className="shrink-0" onClick={() => fillRandomExample(dayDate, item.key)}>Điền mẫu</Button></div>
+                              <textarea id={inputId} value={item.content} onChange={(event) => updateContent(dayDate, item.key, event.target.value)} rows={2} placeholder="Nhập nội dung hoạt động..." className="min-h-16 w-full resize-y rounded-lg border border-border bg-white/80 p-2.5 text-sm font-normal leading-relaxed text-text-main outline-none focus:border-primary dark:bg-app-background" />
+                            </div>
+                          })}</div>}
+                      </TableCell>
+                    </TableRow>
+                  })}
+                </TableBody>
+              </Table>
             </section>
-            {!isViewMode && <div className="sticky bottom-2 z-10 flex justify-end"><Button type="button" disabled={!isDirty || saveMutation.isPending} onClick={() => saveMutation.mutate()}>{saveMutation.isPending ? <Loader2 size={16} className="spin" /> : <Save size={16} />}Lưu kế hoạch tháng</Button></div>}
           </div>}
         </main>
       </div>

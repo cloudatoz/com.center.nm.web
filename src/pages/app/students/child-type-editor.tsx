@@ -68,8 +68,8 @@ export function ChildTypeEditor({ initial, teachers, showTitle = true }: { initi
           <label className="grid gap-1.5 text-sm font-semibold">Tiền ăn<input name={`${type}.meal`} type="number" min="0" step="1000" defaultValue={config.prices.meal} className={inputClass} /></label>
         </> : <>
           <label className="grid gap-1.5 text-sm font-semibold">{type === 'SHADOW' ? 'Tổng học phí Shadow/tháng' : 'Học phí'}<input name={`${type}.price`} type="number" min="0" step="1000" defaultValue={config.price} className={inputClass} /></label>
+          <ScheduleEditor type={type} initial={config.schedules} teachers={teachers} />
         </>}
-        <ScheduleEditor type={type} initial={config.schedules} teachers={teachers} />
       </div>
     })}
   </fieldset>

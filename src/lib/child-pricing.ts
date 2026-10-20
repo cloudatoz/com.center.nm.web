@@ -33,11 +33,16 @@ export function configForAttendance(child: Pick<Child, 'type'> | null | undefine
 
 const DAY_NAMES = ['chủ nhật', 'thứ 2', 'thứ 3', 'thứ 4', 'thứ 5', 'thứ 6', 'thứ 7']
 
-export function scheduleForDate(config: ChildTypeConfig | null | undefined, date: string) {
-  if (!config?.schedules.length) return undefined
+export function schedulesForDate(config: ChildTypeConfig | null | undefined, date: string) {
+  if (!config?.schedules.length) return []
   const [year, month, day] = date.slice(0, 10).split('-').map(Number)
   const dayName = DAY_NAMES[new Date(year, month - 1, day).getDay()]
-  return config.schedules.find((schedule) => schedule.scheduleInWeek.includes(dayName)) || config.schedules[0]
+  const matched = config.schedules.filter((schedule) => schedule.scheduleInWeek.includes(dayName))
+  return matched.length ? matched : []
+}
+
+export function scheduleForDate(config: ChildTypeConfig | null | undefined, date: string) {
+  return schedulesForDate(config, date)[0]
 }
 
 export function supportsAttendanceType(child: Pick<Child, 'type'>, attendanceType: AttendanceType) {

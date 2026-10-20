@@ -8,7 +8,7 @@ import { Card, CardHeader } from '@/components/ui/card'
 import { Modal } from '@/components/ui/modal'
 import { PageHeader } from '@/components/ui/page-header'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-import { boardingTotal, configForAttendance, lessonConfigType, scheduleForDate } from '@/lib/child-pricing'
+import { boardingTotal, configForAttendance, lessonConfigType, schedulesForDate } from '@/lib/child-pricing'
 import { getAccountBanks, getVietQrImage } from '@/services/apis/account-bank-api'
 import { createAttendance, deleteAttendanceDay, type AttendanceType, getMonthlyAttendances, type MonthlyAttendance, setAttendanceCompleted, updateAttendanceDay } from '@/services/apis/attendance-api'
 import { type Child, type ChildTypeCode, getChildren, updateChild } from '@/services/apis/children-api'
@@ -85,6 +85,17 @@ const uniqueAttendanceTeachers = (days: AttendanceDay[]) => {
   return [...teachers.values()]
 }
 const attendanceTeacherNames = (days: AttendanceDay[]) => uniqueAttendanceTeachers(days).map((teacher) => teacher.name).join(', ') || 'Chưa có dữ liệu điểm danh'
+const groupDaysByDate = (days: AttendanceDay[]) => {
+  const grouped = new Map<number, AttendanceDay[]>()
+  for (const item of days) {
+    const day = Number(item.date.slice(8, 10))
+    grouped.set(day, [...(grouped.get(day) || []), item])
+  }
+  return grouped
+}
+const sessionTeacherNames = (items: AttendanceDay[]) => [...new Set(items.map((item) => item.teacherName).filter(Boolean))].join(', ')
+const scheduledTeacherIds = (config: Parameters<typeof schedulesForDate>[0], date: string) =>
+  schedulesForDate(config, date).map((schedule) => schedule.teacherId).filter((id): id is string => Boolean(id))
 
 function TeacherSalaryLines({ days, selectedTeacherId, onSelect, monthlyTotal = false }: { days: AttendanceDay[]; selectedTeacherId?: string; onSelect?: (teacherId: string) => void; monthlyTotal?: boolean }) {
   const teachers = uniqueAttendanceTeachers(days)
@@ -219,9 +230,17 @@ export default function StudentHistoryPage() {
     onError: (error) => toast.error(error instanceof Error ? error.message : 'Không thể lưu lịch sử học'),
   })
   const dayMutation = useMutation({
-    mutationFn: async ({ attendanceId, childId, date, attendanceType, attended, spendTime, defaultTeacherId, absent, refund, notes, lessonType }: { attendanceId: string; childId: string; date: string; attendanceType: AttendanceType; attended: boolean; spendTime?: number; defaultTeacherId?: string | null; absent?: boolean; refund?: number; notes?: string; lessonType?: string }) => {
+    mutationFn: async ({ attendanceId, childId, date, attendanceType, attended, spendTime, defaultTeacherId, teacherIds, absent, refund, notes, lessonType }: { attendanceId: string; childId: string; date: string; attendanceType: AttendanceType; attended: boolean; spendTime?: number; defaultTeacherId?: string | null; teacherIds?: string[]; absent?: boolean; refund?: number; notes?: string; lessonType?: string }) => {
       const selectedTeacherId = defaultTeacherId || undefined
-      if (!attended) return createAttendance(childId, date, attendanceType === 'CA_NGAY' ? 0 : spendTime || 1, attendanceType, selectedTeacherId)
+      if (!attended) {
+        const ids = teacherIds?.length ? teacherIds : (selectedTeacherId ? [selectedTeacherId] : [undefined])
+        let last = null
+        for (const teacherId of ids) {
+          last = await createAttendance(childId, date, attendanceType === 'CA_NGAY' ? 0 : spendTime || 1, attendanceType, teacherId)
+        }
+        if (!last) throw new Error('Không thể tạo buổi học')
+        return last
+      }
       if (spendTime !== undefined) return updateAttendanceDay(attendanceId, date, spendTime, needsTeacher(attendanceType) ? selectedTeacherId : undefined, absent, refund, notes, lessonType)
       return deleteAttendanceDay(childId, date, attendanceType)
     },
@@ -596,9 +615,7 @@ export default function StudentHistoryPage() {
                 const latestDay = (items: typeof attendance.days) => items.reduce((latest, item) => !latest || item.date > latest.date ? item : latest, items[0])
                 const boardingSnapshot = latestDay(boardingRow?.days || [])
                 const sessionSnapshot = latestDay(sessionRow?.days || [])
-                const attendanceByDay = new Map(
-                  attendance.days.map((item) => [Number(item.date.slice(8, 10)), item]),
-                )
+                const attendanceByDay = groupDaysByDate(attendance.days)
                 const rowTotals = attendanceTotals(attendance)
                 const pricingConfig = configForAttendance(child as Child | null, attendance.type, sessionSnapshot?.lessonType)
                 return (
@@ -623,20 +640,24 @@ export default function StudentHistoryPage() {
                       <Button type="button" size="sm" variant="secondary" className="complete-attention mx-auto mt-2" disabled={finishEditMutation.isPending || dayMutation.isPending} onClick={() => finishEditMutation.mutate(attendance._id)}><CheckCircle2 size={13} />Hoàn tất điểm danh</Button>
                     </TableCell>
                     {days.map((day) => {
-                      const item = attendanceByDay.get(day)
+                      const items = attendanceByDay.get(day) || []
+                      const item = items.find((session) => session.teacherId === selectedAttendanceTeachers[attendance._id]) || items[0]
+                      const hasAbsent = items.some((session) => session.absent)
+                      const hasPresent = items.some((session) => !session.absent)
                       return (
                         <TableCell key={day} className="p-1 text-center">
                           <button type="button" disabled={dayMutation.isPending} onClick={async () => {
                             const date = `${month}-${String(day).padStart(2, '0')}`
                             if (!await confirmEditingFromCell(attendance, child?.name || `Trẻ #${childId}`)) return
+                            const teacherIds = scheduledTeacherIds(pricingConfig, date)
                             if (item) {
-                              openDayEditor(attendance, date, item, scheduleForDate(pricingConfig, date)?.teacherId)
+                              openDayEditor(attendance, date, item, item.teacherId || teacherIds[0])
                               return
                             }
-                            const scheduledTeacherId = selectedAttendanceTeachers[attendance._id] || scheduleForDate(pricingConfig, date)?.teacherId
-                            if (needsTeacher(attendance.type) && !item && !scheduledTeacherId) return toast.error('Trẻ chưa có giáo viên trong lịch ngày này')
-                            dayMutation.mutate({ attendanceId: attendance._id, childId, date, attendanceType: attendance.type, attended: Boolean(item), defaultTeacherId: scheduledTeacherId })
-                          }} className={`mx-auto grid min-h-8 min-w-8 cursor-pointer place-items-center rounded-lg px-1 py-1 text-[10px] font-bold transition ${item ? item.absent ? 'bg-amber-50 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300' : 'bg-emerald-50 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300' : 'text-muted/40'} ${editingIds.has(attendance._id) ? 'ring-1 ring-primary/30 hover:bg-primary/10' : 'hover:bg-primary/5 hover:ring-1 hover:ring-primary/20'} disabled:opacity-70`} title={editingIds.has(attendance._id) ? item ? 'Bấm để sửa buổi học' : 'Bấm để thêm ngày học' : `Bấm để điểm danh bé ${child?.name || childId}`}>{item ? isFullDayType(attendance.type) ? <span><span className="block">{item.absent ? 'Nghỉ' : <Check size={15} />}</span>{!item.absent && item.teacherName && <span className="mt-0.5 block max-w-20 truncate font-medium">{item.teacherName}</span>}{item.refund > 0 && <span className="mt-0.5 block text-red-600">Hoàn {formatMoney(item.refund)}</span>}</span> : <span><span className="block">{item.absent ? 'Nghỉ' : `${item.lessonType || 'HỌC'} · ${item.spendTime}h`}</span>{!item.absent && item.teacherName && <span className="mt-0.5 block max-w-20 truncate font-medium">{item.teacherName}</span>}{item.refund > 0 && <span className="mt-0.5 block text-red-600">Hoàn {formatMoney(item.refund)}</span>}</span> : '—'}</button>
+                            const scheduledTeacherId = selectedAttendanceTeachers[attendance._id] || teacherIds[0]
+                            if (needsTeacher(attendance.type) && !scheduledTeacherId) return toast.error('Trẻ chưa có giáo viên trong lịch ngày này')
+                            dayMutation.mutate({ attendanceId: attendance._id, childId, date, attendanceType: attendance.type, attended: false, defaultTeacherId: scheduledTeacherId, teacherIds })
+                          }} className={`mx-auto grid min-h-8 min-w-8 cursor-pointer place-items-center rounded-lg px-1 py-1 text-[10px] font-bold transition ${items.length ? hasAbsent && !hasPresent ? 'bg-amber-50 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300' : 'bg-emerald-50 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300' : 'text-muted/40'} ${editingIds.has(attendance._id) ? 'ring-1 ring-primary/30 hover:bg-primary/10' : 'hover:bg-primary/5 hover:ring-1 hover:ring-primary/20'} disabled:opacity-70`} title={editingIds.has(attendance._id) ? items.length ? 'Bấm để sửa buổi học' : 'Bấm để thêm ngày học' : `Bấm để điểm danh bé ${child?.name || childId}`}>{items.length ? isFullDayType(attendance.type) ? <span><span className="block">{hasPresent ? <Check size={15} /> : 'Nghỉ'}</span>{sessionTeacherNames(items) && <span className="mt-0.5 block max-w-20 font-medium">{sessionTeacherNames(items)}</span>}{items.some((session) => session.refund > 0) && <span className="mt-0.5 block text-red-600">Hoàn {formatMoney(items.reduce((sum, session) => sum + session.refund, 0))}</span>}</span> : <span>{items.map((session) => <span key={`${session.date}-${session.teacherId || session.teacherName}`} className="mt-0.5 block"><span className="block">{session.absent ? 'Nghỉ' : `${session.lessonType || 'HỌC'} · ${session.spendTime}h`}</span>{!session.absent && session.teacherName && <span className="block max-w-20 truncate font-medium">{session.teacherName}</span>}{session.refund > 0 && <span className="block text-red-600">Hoàn {formatMoney(session.refund)}</span>}</span>)}</span> : '—'}</button>
                         </TableCell>
                       )
                     })}
@@ -688,7 +709,7 @@ export default function StudentHistoryPage() {
                     </div>
                     {rows.map((attendance) => {
                       const rowTotals = attendanceTotals(attendance)
-                      const attendanceByDay = new Map(attendance.days.map((item) => [Number(item.date.slice(8, 10)), item]))
+                      const attendanceByDay = groupDaysByDate(attendance.days)
                       const latestSnapshot = attendance.days.reduce((latest, item) => !latest || item.date > latest.date ? item : latest, attendance.days[0])
                       const pricingConfig = configForAttendance(child as Child | null, attendance.type, latestSnapshot?.lessonType)
                       return <section key={attendance._id} className="grid gap-2 border-b border-border pb-3 last:border-b-0 last:pb-0">
@@ -712,15 +733,19 @@ export default function StudentHistoryPage() {
                             const isWeekend = index % 7 >= 5
                             if (!day) return <div key={`empty-${index}`} className={isWeekend ? 'min-h-16 rounded-md bg-slate-100 dark:bg-slate-800/70 sm:min-h-20 lg:min-h-16' : 'min-h-16 sm:min-h-20 lg:min-h-16'} />
                             const date = `${month}-${String(day).padStart(2, '0')}`
-                            const item = attendanceByDay.get(day)
+                            const items = attendanceByDay.get(day) || []
+                            const item = items.find((session) => session.teacherId === selectedAttendanceTeachers[attendance._id]) || items[0]
+                            const hasAbsent = items.some((session) => session.absent)
+                            const hasPresent = items.some((session) => !session.absent)
                             return <button key={date} type="button" disabled={dayMutation.isPending} onClick={async () => {
                               if (!await confirmEditingFromCell(attendance, child?.name || `Trẻ #${childId}`)) return
-                              const scheduledTeacherId = selectedAttendanceTeachers[attendance._id] || scheduleForDate(pricingConfig, date)?.teacherId
+                              const teacherIds = scheduledTeacherIds(pricingConfig, date)
+                              const scheduledTeacherId = selectedAttendanceTeachers[attendance._id] || item?.teacherId || teacherIds[0]
                               if (item) return openDayEditor(attendance, date, item, scheduledTeacherId)
                               if (needsTeacher(attendance.type) && !scheduledTeacherId) return toast.error('Trẻ chưa có giáo viên trong lịch ngày này')
-                              dayMutation.mutate({ attendanceId: attendance._id, childId, date, attendanceType: attendance.type, attended: false, defaultTeacherId: scheduledTeacherId })
-                            }} className={`relative flex min-h-16 min-w-0 cursor-pointer flex-col overflow-hidden rounded-md border p-1 pt-5 text-left transition sm:min-h-20 sm:p-1.5 sm:pt-6 lg:min-h-16 lg:pt-6 ${item ? item.absent ? 'border-amber-300 bg-amber-50 text-amber-800 dark:border-amber-500/40 dark:bg-amber-500/15 dark:text-amber-300' : 'border-emerald-300 bg-emerald-50 text-emerald-800 dark:border-emerald-500/40 dark:bg-emerald-500/15 dark:text-emerald-300' : 'border-border bg-surface'} ${isWeekend ? '!bg-slate-100 dark:!bg-slate-800/80' : ''} hover:border-primary/50 hover:ring-1 hover:ring-primary/20 disabled:opacity-80`} title={editingIds.has(attendance._id) ? item ? 'Bấm để chỉnh sửa' : 'Bấm để điểm danh' : `Bấm để điểm danh bé ${child?.name || childId}`}>
-                              <span className="absolute left-1 top-1 text-sm font-bold sm:left-1.5 sm:text-base lg:text-lg">{day}</span>{item && <span className="mt-auto block min-w-0 text-[10px] font-semibold leading-snug sm:text-xs lg:text-sm"><span className="block">{item.absent ? 'Nghỉ' : isFullDayType(attendance.type) ? 'Học' : `${item.lessonType || 'HỌC'} · ${item.spendTime}h`}</span>{!item.absent && item.teacherName && <span className="block truncate opacity-80">{item.teacherName}</span>}{item.refund > 0 && <span className="block truncate text-red-600">Hoàn {formatMoney(item.refund)}</span>}{item.notes && item.notes.trim().toLocaleUpperCase('vi') !== (item.lessonType || 'HỌC').trim().toLocaleUpperCase('vi') && <span className="block truncate text-[10px] font-normal opacity-75 sm:text-[11px] lg:text-xs">{item.notes}</span>}</span>}
+                              dayMutation.mutate({ attendanceId: attendance._id, childId, date, attendanceType: attendance.type, attended: false, defaultTeacherId: scheduledTeacherId, teacherIds })
+                            }} className={`relative flex min-w-0 cursor-pointer flex-col rounded-md border p-1 pt-5 text-left transition sm:p-1.5 sm:pt-6 lg:pt-6 ${items.length > 1 ? 'min-h-24 sm:min-h-28 lg:min-h-24' : 'min-h-16 sm:min-h-20 lg:min-h-16'} ${items.length ? hasAbsent && !hasPresent ? 'border-amber-300 bg-amber-50 text-amber-800 dark:border-amber-500/40 dark:bg-amber-500/15 dark:text-amber-300' : 'border-emerald-300 bg-emerald-50 text-emerald-800 dark:border-emerald-500/40 dark:bg-emerald-500/15 dark:text-emerald-300' : 'border-border bg-surface'} ${isWeekend ? '!bg-slate-100 dark:!bg-slate-800/80' : ''} hover:border-primary/50 hover:ring-1 hover:ring-primary/20 disabled:opacity-80`} title={editingIds.has(attendance._id) ? items.length ? 'Bấm để chỉnh sửa' : 'Bấm để điểm danh' : `Bấm để điểm danh bé ${child?.name || childId}`}>
+                              <span className="absolute left-1 top-1 text-sm font-bold sm:left-1.5 sm:text-base lg:text-lg">{day}</span>{items.length > 0 && <span className="mt-auto block min-w-0 text-[10px] font-semibold leading-snug sm:text-xs lg:text-sm">{items.map((session) => <span key={`${session.date}-${session.teacherId || session.teacherName}`} className="block"><span className="block">{session.absent ? 'Nghỉ' : isFullDayType(attendance.type) ? 'Học' : `${session.lessonType || 'HỌC'} · ${session.spendTime}h`}</span>{!session.absent && session.teacherName && <span className="block truncate opacity-80">{session.teacherName}</span>}{session.refund > 0 && <span className="block truncate text-red-600">Hoàn {formatMoney(session.refund)}</span>}</span>)}</span>}
                             </button>
                           })}
                         </div>

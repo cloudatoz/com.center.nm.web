@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { toast } from 'sonner'
 import { Modal } from '@/components/ui/modal'
 import { Button } from '@/components/ui/button'
-import { configForAttendance } from '@/lib/child-pricing'
+import { configForAttendance, schedulesForDate } from '@/lib/child-pricing'
 import { type AttendanceType, createAttendance, deleteAttendanceDay, getChildMonthlyAttendance, setAttendanceCompleted } from '@/services/apis/attendance-api'
 import type { Child } from '@/services/apis/children-api'
 import { getTeachers } from '@/services/apis/teachers-api'
@@ -55,8 +55,13 @@ export function AttendanceModal({ child, initialType, initialMonth, onClose }: {
       if (!child) return
       if (attended) await deleteAttendanceDay(child._id, date, attendanceType)
       else {
-        if (needsTeacher(attendanceType) && !teacherId) throw new Error('Vui lòng chọn giáo viên')
-        await createAttendance(child._id, date, isFullDayType(attendanceType) ? 0 : spendTime, attendanceType, teacherId, Number(salaryTeacher) || 0, Number(tuitionFee) || 0)
+        const teacherIds = schedulesForDate(pricingConfig, date).map((schedule) => schedule.teacherId).filter((id): id is string => Boolean(id))
+        const ids = teacherIds.length ? teacherIds : (teacherId ? [teacherId] : [])
+        if (needsTeacher(attendanceType) && !ids.length) throw new Error('Vui lòng chọn giáo viên')
+        for (const id of ids) {
+          const useFormRate = teacherIds.length !== ids.length
+          await createAttendance(child._id, date, isFullDayType(attendanceType) ? 0 : spendTime, attendanceType, id, useFormRate ? Number(salaryTeacher) || 0 : undefined, useFormRate ? Number(tuitionFee) || 0 : undefined)
+        }
       }
     },
     onSuccess: async (_, variables) => {
@@ -80,10 +85,14 @@ export function AttendanceModal({ child, initialType, initialMonth, onClose }: {
     const firstDay = (new Date(year, monthNumber - 1, 1).getDay() + 6) % 7
     return [...Array.from({ length: firstDay }, () => null), ...Array.from({ length: totalDays }, (_, index) => index + 1)]
   }, [month])
-  const attendanceByDate = useMemo(
-    () => new Map((attendanceQuery.data?.days || []).map((day) => [day.date.slice(0, 10), day])),
-    [attendanceQuery.data],
-  )
+  const attendanceByDate = useMemo(() => {
+    const grouped = new Map<string, NonNullable<typeof attendanceQuery.data>['days']>()
+    for (const day of attendanceQuery.data?.days || []) {
+      const key = day.date.slice(0, 10)
+      grouped.set(key, [...(grouped.get(key) || []), day])
+    }
+    return grouped
+  }, [attendanceQuery.data])
   const totalHours = (attendanceQuery.data?.days || []).reduce((sum, day) => sum + day.spendTime, 0)
 
   return (
@@ -102,7 +111,7 @@ export function AttendanceModal({ child, initialType, initialMonth, onClose }: {
             {!isFullDayType(attendanceType) && <label className="grid min-w-0 gap-1.5 text-xs font-semibold text-muted">Học phí<input type="number" min="0" step="1000" value={tuitionFee} onChange={(event) => setTuitionFee(event.target.value)} className="h-10 min-w-0 rounded-xl border border-border bg-surface px-3 text-sm font-medium text-text-main outline-none focus:border-primary" /></label>}
           </div>}
           <div className="flex flex-col gap-3 border-t border-border pt-4 sm:flex-row sm:items-end sm:justify-between">
-            <div className="flex gap-6 text-sm"><div><span className="block text-xs text-muted">Số ngày học</span><strong className="text-lg text-primary">{attendanceQuery.data?.days.length || 0}</strong></div>{!isFullDayType(attendanceType) && <div><span className="block text-xs text-muted">Tổng thời gian</span><strong className="text-lg text-primary">{totalHours}h</strong></div>}</div>
+            <div className="flex gap-6 text-sm"><div><span className="block text-xs text-muted">Số ngày học</span><strong className="text-lg text-primary">{attendanceByDate.size}</strong></div>{!isFullDayType(attendanceType) && <div><span className="block text-xs text-muted">Tổng thời gian</span><strong className="text-lg text-primary">{totalHours}h</strong></div>}</div>
             <div className="flex flex-wrap items-center gap-2">{attendanceQuery.data?.isCompleted ? <><span className="inline-flex h-10 items-center gap-1.5 rounded-xl border border-emerald-300 bg-emerald-50 px-3 text-xs font-bold text-emerald-700 dark:border-emerald-500/40 dark:bg-emerald-500/15 dark:text-emerald-300"><CheckCircle2 size={16} />Đã hoàn thành</span><Button type="button" variant="secondary" size="compact" disabled={completeMutation.isPending} onClick={() => completeMutation.mutate(false)}>{completeMutation.isPending ? <Loader2 size={15} className="spin" /> : <Pencil size={15} />}Chỉnh sửa điểm danh</Button></> : <><span className="inline-flex h-10 items-center gap-1.5 rounded-xl border border-amber-300 bg-amber-50 px-3 text-xs font-bold text-amber-700 dark:border-amber-500/40 dark:bg-amber-500/15 dark:text-amber-300"><XCircle size={16} />Chưa điểm danh</span><Button type="button" size="compact" disabled={!attendanceQuery.data || completeMutation.isPending || mutation.isPending} onClick={() => completeMutation.mutate(true)}>{completeMutation.isPending ? <Loader2 size={15} className="spin" /> : <CheckCircle2 size={15} />}Hoàn thành điểm danh</Button></>}</div>
           </div>
         </div>
@@ -111,9 +120,9 @@ export function AttendanceModal({ child, initialType, initialMonth, onClose }: {
           {calendar.map((day, index) => {
             if (!day) return <div key={`empty-${index}`} />
             const date = `${month}-${String(day).padStart(2, '0')}`
-            const attendance = attendanceByDate.get(date)
+            const sessions = attendanceByDate.get(date) || []
             const pending = mutation.isPending && mutation.variables?.date === date
-            return <button key={date} type="button" disabled={mutation.isPending || attendanceQuery.isLoading || attendanceQuery.data?.isCompleted} onClick={() => mutation.mutate({ date, attended: Boolean(attendance) })} title={attendanceQuery.data?.isCompleted ? 'Bảng điểm danh đã hoàn tất' : attendance ? 'Bấm để bỏ điểm danh' : 'Bấm để điểm danh'} className={`relative min-h-16 rounded-xl border p-1.5 text-left transition sm:min-h-24 sm:p-2 ${attendance ? 'border-emerald-300 bg-emerald-50 text-emerald-800 hover:bg-red-50 hover:text-red-700 dark:border-emerald-500/40 dark:bg-emerald-500/15 dark:text-emerald-300' : 'border-border bg-surface hover:border-primary/50 hover:bg-primary/5'} disabled:cursor-wait disabled:opacity-60`}><span className="text-xs font-bold sm:text-sm">{day}</span>{pending ? <Loader2 size={15} className="absolute bottom-2 right-2 spin" /> : attendance ? <><CalendarCheck size={15} className="absolute right-2 top-2" /><span className="absolute bottom-1.5 left-1.5 right-1.5 text-[10px] font-semibold sm:bottom-2 sm:left-2"><span className="block">{isFullDayType(attendanceType) ? 'Học' : `${attendance.spendTime}h`}</span>{needsTeacher(attendanceType) && attendance.teacherName && <span className="mt-0.5 block truncate font-medium opacity-80">{attendance.teacherName}</span>}</span></> : null}</button>
+            return <button key={date} type="button" disabled={mutation.isPending || attendanceQuery.isLoading || attendanceQuery.data?.isCompleted} onClick={() => mutation.mutate({ date, attended: sessions.length > 0 })} title={attendanceQuery.data?.isCompleted ? 'Bảng điểm danh đã hoàn tất' : sessions.length ? 'Bấm để bỏ điểm danh' : 'Bấm để điểm danh'} className={`relative min-h-16 rounded-xl border p-1.5 text-left transition sm:min-h-24 sm:p-2 ${sessions.length ? 'border-emerald-300 bg-emerald-50 text-emerald-800 hover:bg-red-50 hover:text-red-700 dark:border-emerald-500/40 dark:bg-emerald-500/15 dark:text-emerald-300' : 'border-border bg-surface hover:border-primary/50 hover:bg-primary/5'} disabled:cursor-wait disabled:opacity-60`}><span className="text-xs font-bold sm:text-sm">{day}</span>{pending ? <Loader2 size={15} className="absolute bottom-2 right-2 spin" /> : sessions.length ? <><CalendarCheck size={15} className="absolute right-2 top-2" /><span className="absolute bottom-1.5 left-1.5 right-1.5 text-[10px] font-semibold sm:bottom-2 sm:left-2">{sessions.map((session) => <span key={`${session.date}-${session.teacherId || session.teacherName}`} className="mt-0.5 block"><span className="block">{isFullDayType(attendanceType) ? 'Học' : `${session.spendTime}h`}</span>{needsTeacher(attendanceType) && session.teacherName && <span className="block truncate font-medium opacity-80">{session.teacherName}</span>}</span>)}</span></> : null}</button>
           })}
         </div>
         {attendanceQuery.isLoading && <div className="flex items-center justify-center gap-2 py-3 text-sm text-muted"><Loader2 size={17} className="spin" />Đang tải điểm danh...</div>}
