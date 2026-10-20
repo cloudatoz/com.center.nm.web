@@ -20,6 +20,8 @@ const currentMonth = () => `${new Date().getFullYear()}-${String(new Date().getM
 const formatMoney = (value: number) => `${Number(value || 0).toLocaleString('vi-VN')} đ`
 const formatDateInput = (value: string) => new Date(value).toLocaleDateString('sv-SE', { timeZone: 'Asia/Ho_Chi_Minh' })
 const attendanceBonusAmount = (salary: SalaryMonth['salaries'][number]) => salary.absents.length >= 2 ? 0 : salary.attendanceBonus
+const normalizeTeacherName = (value = '') => value.trim().toLocaleLowerCase('vi').replace(/\s+/g, ' ')
+const teacherTypeLabel = (type: Teacher['type'][number]) => ({ CA_NGAY: 'Cả ngày', THEO_BUOI: 'Theo buổi', CA_NHAN: 'Trung tâm', TAI_NHA: 'Tại nhà', SHADOW: 'Shadow', ASSISTANT: 'Trợ lý', BEP: 'Bếp' })[type]
 type AttendanceChild = Exclude<MonthlyAttendance['children'], string>
 type AttendanceDay = MonthlyAttendance['days'][number]
 
@@ -83,6 +85,7 @@ export default function TeacherHistoryPage() {
   }, [selectedMonth, selectedYear])
   const attendanceQuery = useQuery({ queryKey: ['teacher-history', month], queryFn: () => getMonthlyAttendances(month, 'ALL') })
   const teachersQuery = useQuery({ queryKey: ['teachers'], queryFn: getTeachers })
+  const teacherOrder = useMemo(() => new Map((teachersQuery.data || []).map((teacher) => [teacher._id, teacher.order])), [teachersQuery.data])
   const salaryMonthQuery = useQuery({ queryKey: ['salary-month', month], queryFn: () => getSalaryMonth(month) })
   const receiptTeacher = teachersQuery.data?.find((teacher) => teacher._id === receipt?.teacherId)
   const fixedReceiptTeacher = teachersQuery.data?.find((teacher) => teacher._id === fixedReceipt?.teacherId)
@@ -125,15 +128,30 @@ export default function TeacherHistoryPage() {
   })
   const fixedSalaryTeacherIds = useMemo(() => new Set((salaryMonthQuery.data?.salaries || []).map((salary) => salary.teacherId)), [salaryMonthQuery.data])
   const teachersById = useMemo(() => new Map((teachersQuery.data || []).map((teacher) => [teacher._id, teacher])), [teachersQuery.data])
+  const teachersByName = useMemo(() => new Map((teachersQuery.data || []).map((teacher) => [normalizeTeacherName(teacher.name), teacher])), [teachersQuery.data])
+  const fixedSalaryByName = useMemo(() => new Map((salaryMonthQuery.data?.salaries || []).map((salary) => [normalizeTeacherName(salary.teacherName), salary])), [salaryMonthQuery.data])
+  const fixedSalaryTeacherNames = useMemo(() => new Set(fixedSalaryByName.keys()), [fixedSalaryByName])
+  const teacherTitle = (teacherId: string, teacherName: string) => {
+    const teacher = teachersById.get(teacherId) || teachersByName.get(normalizeTeacherName(teacherName))
+    if (!teacher) return teacherName
+    return `${teacher.order}. ${teacherName} · ${teacher.type.map(teacherTypeLabel).join(' · ')}`
+  }
 
   const resolveDayTeacher = (attendance: MonthlyAttendance, day: AttendanceDay) => {
     if (typeof attendance.children === 'string') return null
     const config = configForAttendance(attendance.children, attendance.type, day.lessonType)
     const schedule = scheduleForDate(config, day.date)
-    const teacherId = day.teacherId || schedule?.teacherId || ''
-    if (!teacherId) return null
-    const teacherName = day.teacherName || teachersById.get(teacherId)?.name || schedule?.teacherName || `GV #${teacherId}`
-    const salaryTeacher = day.salaryTeacher || (String(schedule?.teacherId || '') === teacherId ? schedule?.teacherPrice || 0 : 0)
+    const sourceTeacherId = day.teacherId || schedule?.teacherId || ''
+    if (!sourceTeacherId) return null
+    const sourceTeacher = teachersById.get(sourceTeacherId)
+    const sourceTeacherName = sourceTeacher?.name || day.teacherName || schedule?.teacherName || `GV #${sourceTeacherId}`
+    const normalizedName = normalizeTeacherName(sourceTeacherName)
+    const fixedSalaryTeacher = fixedSalaryByName.get(normalizedName)
+    const canonicalTeacher = sourceTeacher || teachersByName.get(normalizedName)
+    const teacherId = fixedSalaryTeacher?.teacherId || canonicalTeacher?._id || sourceTeacherId
+    const teacherName = fixedSalaryTeacher?.teacherName || canonicalTeacher?.name || sourceTeacherName
+    const scheduleMatchesTeacher = String(schedule?.teacherId || '') === sourceTeacherId || normalizeTeacherName(schedule?.teacherName) === normalizedName
+    const salaryTeacher = day.salaryTeacher || (scheduleMatchesTeacher ? schedule?.teacherPrice || 0 : 0)
     return { teacherId, teacherName, salaryTeacher }
   }
   const teachingType = (attendance: MonthlyAttendance, day: AttendanceDay) => {
@@ -148,7 +166,7 @@ export default function TeacherHistoryPage() {
       const child = attendance.children
       for (const day of attendance.days) {
         const resolvedTeacher = resolveDayTeacher(attendance, day)
-        if (day.absent || !resolvedTeacher || fixedSalaryTeacherIds.has(resolvedTeacher.teacherId)) continue
+        if (day.absent || !resolvedTeacher || fixedSalaryTeacherIds.has(resolvedTeacher.teacherId) || fixedSalaryTeacherNames.has(normalizeTeacherName(resolvedTeacher.teacherName))) continue
         const sourceType = teachingType(attendance, day)
         const childKey = `${child._id}_${sourceType.typeCode}`
         const teacher = teachers.get(resolvedTeacher.teacherId) || { teacherName: resolvedTeacher.teacherName, children: new Map<string, ChildTeachingGroup>() }
@@ -172,7 +190,7 @@ export default function TeacherHistoryPage() {
         totalSalary: children.reduce((sum, child) => sum + child.totalSalary, 0),
       }
     }).sort((left, right) => left.teacherName.localeCompare(right.teacherName, 'vi'))
-  }, [attendanceQuery.data, fixedSalaryTeacherIds, teachersById])
+  }, [attendanceQuery.data, fixedSalaryTeacherIds, fixedSalaryTeacherNames, fixedSalaryByName, teachersById, teachersByName])
   const filteredGroups = useMemo(() => {
     const keyword = search.trim().toLocaleLowerCase('vi')
     return keyword ? teacherGroups.filter((group) => group.teacherName.toLocaleLowerCase('vi').includes(keyword) || group.children.some((child) => child.child.name.toLocaleLowerCase('vi').includes(keyword))) : teacherGroups
@@ -183,7 +201,7 @@ export default function TeacherHistoryPage() {
       if (typeof attendance.children === 'string') continue
       for (const day of attendance.days) {
         const resolvedTeacher = resolveDayTeacher(attendance, day)
-        if (day.absent || !resolvedTeacher || !fixedSalaryTeacherIds.has(resolvedTeacher.teacherId)) continue
+        if (day.absent || !resolvedTeacher || (!fixedSalaryTeacherIds.has(resolvedTeacher.teacherId) && !fixedSalaryTeacherNames.has(normalizeTeacherName(resolvedTeacher.teacherName)))) continue
         const sourceType = teachingType(attendance, day)
         const childKey = `${attendance.children._id}_${sourceType.typeCode}`
         const children = teachingByTeacher.get(resolvedTeacher.teacherId) || new Map<string, ChildTeachingGroup>()
@@ -203,8 +221,8 @@ export default function TeacherHistoryPage() {
       const children = [...(teachingByTeacher.get(salary.teacherId)?.values() || [])].sort((left, right) => left.child.name.localeCompare(right.child.name, 'vi'))
       return { ...salary, children, totalHours: children.reduce((sum, child) => sum + child.totalHours, 0) }
     }).filter((group) => !keyword || group.teacherName.toLocaleLowerCase('vi').includes(keyword) || group.children.some((child) => child.child.name.toLocaleLowerCase('vi').includes(keyword)))
-  }, [attendanceQuery.data, fixedSalaryTeacherIds, salaryMonthQuery.data, search, teachersById])
-  const totalSalary = filteredGroups.reduce((sum, group) => sum + group.totalSalary, 0)
+  }, [attendanceQuery.data, fixedSalaryTeacherIds, fixedSalaryTeacherNames, fixedSalaryByName, salaryMonthQuery.data, search, teachersById, teachersByName])
+  const totalSalary = filteredGroups.reduce((sum, group) => sum + group.totalSalary, 0) + fixedSalaryGroups.reduce((sum, salary) => sum + fixedSalaryGrandTotal(salary), 0)
   const formatTeachingDates = (days: AttendanceDay[]) => {
     const dates = [...new Set(days.map((day) => Number(day.date.slice(8, 10))))].sort((left, right) => left - right)
     return `${dates.join(', ')}/${selectedMonth}`
@@ -273,24 +291,24 @@ export default function TeacherHistoryPage() {
         <label className="grid gap-1.5 text-xs font-semibold text-muted">Tháng<select value={selectedMonth} onChange={(event) => setMonth(`${selectedYear}-${String(event.target.value).padStart(2, '0')}`)} className="h-10 rounded-xl border border-border bg-surface px-3 text-sm font-medium outline-none focus:border-primary">{MONTHS.map((value) => <option key={value} value={value}>Tháng {value}</option>)}</select></label>
         <label className="grid gap-1.5 text-xs font-semibold text-muted">Năm<select value={selectedYear} onChange={(event) => setMonth(`${event.target.value}-${String(selectedMonth).padStart(2, '0')}`)} className="h-10 rounded-xl border border-border bg-surface px-3 text-sm font-medium outline-none focus:border-primary">{YEARS.map((value) => <option key={value} value={value}>Năm {value}</option>)}</select></label>
         <label className="relative min-w-60 flex-1"><span className="sr-only">Tìm kiếm</span><Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted" /><input type="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Tìm giáo viên hoặc trẻ..." className="h-10 w-full rounded-xl border border-border bg-surface pl-9 pr-3 text-sm outline-none focus:border-primary" /></label>
-        <div className="ml-auto rounded-xl bg-primary/10 px-4 py-2"><span className="block text-[10px] font-semibold uppercase text-muted">Tổng lương theo buổi</span><strong className="text-lg text-primary">{formatMoney(totalSalary)}</strong></div>
+        <div className="ml-auto rounded-xl bg-primary/10 px-4 py-2"><span className="block text-[10px] font-semibold uppercase text-muted">Tổng lương</span><strong className="text-lg text-primary">{formatMoney(totalSalary)}</strong></div>
       </div>
     </Card>
+    <div className="grid gap-6">
     {salaryMonthQuery.isLoading && <Card className="flex min-h-32 items-center justify-center gap-2 text-sm text-muted"><Loader2 size={18} className="spin text-primary" />Đang tải lương cố định tháng...</Card>}
-    {salaryMonthQuery.isSuccess && fixedSalaryGroups.length > 0 && <div className="flex items-center gap-3"><span className="whitespace-nowrap text-sm font-bold uppercase tracking-wide text-blue-700 dark:text-blue-300">Các cô cả ngày</span><span className="h-px flex-1 bg-blue-300 dark:bg-blue-500/40" /></div>}
-    {salaryMonthQuery.isSuccess && fixedSalaryGroups.map((salary) => <Card key={salary.teacherId} className="overflow-hidden shadow-md shadow-slate-200/60 dark:shadow-none">
-      <CardHeader title={salary.teacherName} description={`Lương cố định · ${salary.children.length} nguồn dạy · ${salary.totalHours} giờ`} action={<div className="flex items-center gap-2"><strong className="mr-1 text-primary">{formatMoney(fixedSalaryGrandTotal(salary))}</strong><Button type="button" size="sm" variant="secondary" onClick={() => openFixedSalaryEditor(salary)}><Pencil size={14} />Chỉnh sửa</Button>{transferredCheckbox(salary.teacherId, fixedSalaryGrandTotal(salary))}<Button type="button" size="sm" onClick={() => setFixedReceipt(salary)}><FileImage size={14} />Xuất phiếu</Button></div>} />
+    {salaryMonthQuery.isSuccess && fixedSalaryGroups.map((salary) => <Card key={salary.teacherId} style={{ order: teacherOrder.get(salary.teacherId) ?? 9999 }} className="overflow-hidden shadow-md shadow-slate-200/60 dark:shadow-none">
+      <CardHeader title={teacherTitle(salary.teacherId, salary.teacherName)} description={`Lương cố định · ${salary.children.length} nguồn dạy · ${salary.totalHours} giờ`} action={<div className="flex items-center gap-2"><strong className="mr-1 text-primary">{formatMoney(fixedSalaryGrandTotal(salary))}</strong><Button type="button" size="sm" variant="secondary" onClick={() => openFixedSalaryEditor(salary)}><Pencil size={14} />Chỉnh sửa</Button>{transferredCheckbox(salary.teacherId, fixedSalaryGrandTotal(salary))}<Button type="button" size="sm" onClick={() => setFixedReceipt(salary)}><FileImage size={14} />Xuất phiếu</Button></div>} />
       <Table><TableHeader><TableRow><TableHead>Lương cơ bản</TableHead><TableHead>Bảo hiểm</TableHead><TableHead>Chuyên cần</TableHead><TableHead>Lương khác</TableHead><TableHead>Ngày nghỉ</TableHead><TableHead className="text-right">Tổng thực nhận</TableHead></TableRow></TableHeader><TableBody><TableRow><TableCell className="whitespace-nowrap font-medium">{formatMoney(salary.baseSalary)}</TableCell><TableCell className="whitespace-nowrap">{formatMoney(salary.insuranceSupport)}</TableCell><TableCell className="whitespace-nowrap">{formatMoney(attendanceBonusAmount(salary))}{salary.absents.length >= 2 && <span className="block text-[10px] text-red-600">Mất do nghỉ từ 2 ngày</span>}</TableCell><TableCell className="whitespace-nowrap">{formatMoney(salary.otherSalary)}</TableCell><TableCell>{salary.absents.length ? <div className="grid min-w-52 gap-1">{salary.absents.map((absent) => <span key={absent.date} className={`rounded-md px-2 py-1 text-[10px] font-semibold ${absent.isPaidLeave ? 'bg-blue-50 text-blue-700' : 'bg-red-50 text-red-700'}`}>{new Date(absent.date).toLocaleDateString('vi-VN')} · {absent.isPaidLeave ? 'Phép' : `-${formatMoney(absent.subSalary)}`}</span>)}</div> : '—'}</TableCell><TableCell className="whitespace-nowrap text-right text-base font-bold text-primary">{formatMoney(salary.totalSalary)}</TableCell></TableRow></TableBody></Table>
       {salary.children.length > 0 && <div className="border-t border-border"><div className="bg-surface-muted/40 px-4 py-2 text-[11px] font-bold uppercase text-muted">Trẻ và ngày dạy</div><Table><TableHeader><TableRow><TableHead>Tên trẻ</TableHead><TableHead>Loại học</TableHead><TableHead>Ngày dạy</TableHead><TableHead>Số giờ</TableHead><TableHead>Lương 1 giờ</TableHead><TableHead className="text-right">Tiền lương</TableHead></TableRow></TableHeader><TableBody>{salary.children.map((child) => <TableRow key={`${child.child._id}-${child.typeCode}`}><TableCell className="font-semibold">{child.child.name}</TableCell><TableCell>{child.typeLabel}</TableCell><TableCell className="font-medium">{formatTeachingDates(child.days)}</TableCell><TableCell>{child.totalHours} giờ</TableCell><TableCell className="whitespace-nowrap">{formatMoney(child.salaryPerHour)}</TableCell><TableCell className="text-right font-bold text-primary">{formatMoney(child.totalSalary)}</TableCell></TableRow>)}</TableBody></Table></div>}
     </Card>)}
     {attendanceQuery.isLoading && <Card className="flex min-h-56 items-center justify-center gap-2 text-sm text-muted"><Loader2 size={18} className="spin text-primary" />Đang tổng hợp lịch sử dạy...</Card>}
     {attendanceQuery.isError && <Card className="p-5 text-sm text-red-700">Không thể tải lịch sử dạy.</Card>}
-    {attendanceQuery.isSuccess && filteredGroups.length === 0 && <Card className="grid min-h-56 place-items-center text-center text-muted"><div><Users size={34} className="mx-auto" /><p>Chưa có dữ liệu dạy trong tháng này.</p></div></Card>}
-    {attendanceQuery.isSuccess && filteredGroups.length > 0 && <div className="flex items-center gap-3"><span className="whitespace-nowrap text-sm font-bold uppercase tracking-wide text-purple-700 dark:text-purple-300">Các cô cá nhân</span><span className="h-px flex-1 bg-purple-300 dark:bg-purple-500/40" /></div>}
-    {filteredGroups.map((group) => <Card key={group.teacherId} className="overflow-hidden shadow-md shadow-slate-200/60 dark:shadow-none">
-      <CardHeader title={group.teacherName} description={`${group.children.length} trẻ · ${group.totalHours} giờ`} action={<div className="flex items-center gap-2"><strong className="mr-1 text-primary">{formatMoney(group.totalSalary)}</strong><Button type="button" size="sm" variant="secondary" onClick={() => { const teacher = teachersQuery.data?.find((item) => item._id === group.teacherId); if (teacher) setEditingHourlyTeacher(teacher); else toast.error('Không tìm thấy thông tin giáo viên') }}><Pencil size={14} />Chỉnh sửa</Button>{transferredCheckbox(group.teacherId, group.totalSalary)}<Button type="button" size="sm" variant="secondary" onClick={() => setReceipt(group)}><FileImage size={14} />Xuất phiếu</Button></div>} />
+    {attendanceQuery.isSuccess && salaryMonthQuery.isSuccess && filteredGroups.length === 0 && fixedSalaryGroups.length === 0 && <Card className="grid min-h-56 place-items-center text-center text-muted"><div><Users size={34} className="mx-auto" /><p>Chưa có dữ liệu dạy trong tháng này.</p></div></Card>}
+    {filteredGroups.map((group) => <Card key={group.teacherId} style={{ order: teacherOrder.get(group.teacherId) ?? 9999 }} className="overflow-hidden shadow-md shadow-slate-200/60 dark:shadow-none">
+      <CardHeader title={teacherTitle(group.teacherId, group.teacherName)} description={`${group.children.length} trẻ · ${group.totalHours} giờ`} action={<div className="flex items-center gap-2"><strong className="mr-1 text-primary">{formatMoney(group.totalSalary)}</strong><Button type="button" size="sm" variant="secondary" onClick={() => { const teacher = teachersQuery.data?.find((item) => item._id === group.teacherId); if (teacher) setEditingHourlyTeacher(teacher); else toast.error('Không tìm thấy thông tin giáo viên') }}><Pencil size={14} />Chỉnh sửa</Button>{transferredCheckbox(group.teacherId, group.totalSalary)}<Button type="button" size="sm" variant="secondary" onClick={() => setReceipt(group)}><FileImage size={14} />Xuất phiếu</Button></div>} />
       <Table><TableHeader><TableRow><TableHead>Tên trẻ</TableHead><TableHead>Loại học</TableHead><TableHead>Ngày dạy</TableHead><TableHead>Số giờ</TableHead><TableHead>Lương 1 giờ</TableHead><TableHead className="text-right">Tiền lương</TableHead></TableRow></TableHeader><TableBody>{group.children.map((child) => <TableRow key={`${child.child._id}-${child.typeCode}`}><TableCell className="font-semibold">{child.child.name}</TableCell><TableCell>{child.typeLabel}</TableCell><TableCell className="font-medium">{formatTeachingDates(child.days)}</TableCell><TableCell>{child.totalHours} giờ</TableCell><TableCell className="whitespace-nowrap">{formatMoney(child.salaryPerHour)}</TableCell><TableCell className="text-right font-bold text-primary">{formatMoney(child.totalSalary)}</TableCell></TableRow>)}</TableBody></Table>
     </Card>)}
+    </div>
     <Modal open={Boolean(editingHourlyTeacher)} onClose={() => !updateHourlyTeacherMutation.isPending && setEditingHourlyTeacher(null)} title="Chỉnh sửa giáo viên cá nhân" description={editingHourlyTeacher?.name}>
       {editingHourlyTeacher && <form onSubmit={(event) => { event.preventDefault(); const form = new FormData(event.currentTarget); updateHourlyTeacherMutation.mutate({ id: editingHourlyTeacher._id, isPayInsurance: form.get('isPayInsurance') === 'on' }) }} className="grid gap-5">
         <label className="flex items-center gap-3 rounded-xl border border-border p-4 text-sm font-semibold"><input name="isPayInsurance" type="checkbox" defaultChecked={editingHourlyTeacher.isPayInsurance} className="h-5 w-5 accent-primary" />Có đóng bảo hiểm</label>

@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Copy, Eye, Loader2, Pencil, Save, Search, Trash2 } from 'lucide-react'
+import { Eye, Loader2, Pencil, Save, Search } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
@@ -148,18 +148,6 @@ export default function StudentPlansPage() {
     })
     setIsDirty(true)
   }
-  const copyPreviousDay = (date: string) => {
-    const previous = days.filter((day) => dateKey(day.date) < date && day.items.some((item) => item.content.trim())).sort((left, right) => dateKey(right.date).localeCompare(dateKey(left.date)))[0]
-    if (!previous) return toast.error('Chưa có ngày trước để sao chép')
-    setDays((current) => {
-      const copiedDay = { date, items: previous.items.map((item) => ({ ...item })) }
-      return current.some((day) => dateKey(day.date) === date)
-        ? current.map((day) => dateKey(day.date) === date ? copiedDay : day)
-        : [...current, copiedDay].sort((left, right) => dateKey(left.date).localeCompare(dateKey(right.date)))
-    })
-    setIsDirty(true)
-    toast.success('Đã sao chép nội dung từ ngày trước')
-  }
   const fillRandomExample = (date: string, categoryKey: string) => {
     if (!selectedChild) return
     const age = selectedChild.ages.find((item) => item.id === categoryKey)?.age ?? 3
@@ -174,10 +162,6 @@ export default function StudentPlansPage() {
     const differentContents = matchingContents.filter((content) => content !== currentContent)
     const choices = differentContents.length ? differentContents : matchingContents
     updateContent(date, categoryKey, choices[Math.floor(Math.random() * choices.length)])
-  }
-  const clearDay = (date: string) => {
-    setDays((current) => current.filter((day) => dateKey(day.date) !== date))
-    setIsDirty(true)
   }
   const changeMonth = (nextMonth: string) => {
     if (isDirty && !window.confirm('Kế hoạch chưa lưu sẽ bị mất. Bạn vẫn muốn đổi tháng?')) return
@@ -219,21 +203,16 @@ export default function StudentPlansPage() {
                 <TableBody className="divide-y-0">
                   {monthlyDays.map((day) => {
                     const dayDate = dateKey(day.date)
-                    const hasContent = day.items.some((item) => item.content.trim())
                     const { label, isWeekend } = formatPlanDate(dayDate)
                     return <TableRow key={dayDate} className="align-top border-b-2 border-primary/35 last:border-b-0">
                       <TableCell className={`align-top ${isWeekend ? 'bg-amber-300/80 dark:bg-amber-500/40' : 'bg-amber-50 dark:bg-amber-500/10'}`}>
                         <div className="grid gap-2">
                           <strong className="whitespace-nowrap leading-snug">{label}</strong>
-                          {!isViewMode && <div className="grid gap-1.5">
-                            <Button type="button" size="sm" variant="secondary" onClick={() => copyPreviousDay(dayDate)}><Copy size={13} />Sao chép ngày trước</Button>
-                            {hasContent && <Button type="button" size="sm" variant="danger" onClick={() => clearDay(dayDate)}><Trash2 size={13} />Xóa nội dung</Button>}
-                          </div>}
                         </div>
                       </TableCell>
                       <TableCell className="align-top">
                         {isViewMode
-                          ? <div className="grid gap-1.5">{day.items.map((item) => <p key={item.key} className={`m-0 rounded-lg px-2.5 py-1.5 whitespace-pre-wrap break-words text-sm leading-relaxed ${CATEGORY_COLORS[item.key]}`}><strong className="mr-1.5">{item.title}:</strong>{item.content}</p>)}</div>
+                          ? <div className="grid gap-2">{day.items.map((item) => <div key={item.key} className="overflow-hidden rounded-lg border border-slate-200 bg-white"><strong className={`block px-2.5 py-1.5 text-sm ${CATEGORY_COLORS[item.key]}`}>{item.title}</strong><p className="m-0 whitespace-pre-wrap break-words bg-white px-2.5 py-2 text-sm font-normal leading-relaxed text-slate-800">{item.content || '—'}</p></div>)}</div>
                           : <div className="grid gap-3">{day.items.map((item) => {
                             const inputId = `plan-${dayDate}-${item.key}`
                             return <div key={item.key} className={`grid min-w-0 gap-1.5 rounded-lg p-2.5 text-sm font-semibold ${CATEGORY_COLORS[item.key]}`}>

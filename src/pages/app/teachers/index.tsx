@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { AlertCircle, Eye, Loader2, Pencil, Plus, RefreshCw, Search, Trash2, Users } from 'lucide-react'
 import { type FormEvent, useMemo, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Card, CardHeader } from '@/components/ui/card'
@@ -8,10 +9,12 @@ import { Modal } from '@/components/ui/modal'
 import { PageHeader } from '@/components/ui/page-header'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { VIETNAM_BANKS } from '@/constants/vietnam-banks'
-import { createTeacher, deleteTeacher, getTeachers, type Teacher, updateTeacher } from '@/services/apis/teachers-api'
+import { getMonthlyAttendances } from '@/services/apis/attendance-api'
+import { createTeacher, deleteTeacher, getSalaryMonth, getTeachers, type Teacher, updateTeacher } from '@/services/apis/teachers-api'
 
 const inputClass = 'h-10 rounded-xl border border-border bg-app-background px-3 font-normal outline-none focus:border-primary'
 const formatMoney = (value: number) => `${Number(value || 0).toLocaleString('vi-VN')} đ`
+const currentMonth = () => `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`
 type TeacherType = Teacher['type'][number]
 const teacherTypeLabel = (type: TeacherType) => ({ CA_NGAY: 'Cả ngày', THEO_BUOI: 'Theo buổi', CA_NHAN: 'Trung tâm', TAI_NHA: 'Tại nhà', SHADOW: 'Shadow', ASSISTANT: 'Trợ lý', BEP: 'Bếp' })[type]
 const teacherTypeOptions: Array<{ value: TeacherType; label: string }> = [
@@ -46,6 +49,7 @@ function BankInfo({ name }: { name?: string }) {
 export default function TeachersPage() {
   const queryClient = useQueryClient()
   const [search, setSearch] = useState('')
+  const [salaryMonth, setSalaryMonth] = useState(currentMonth)
   const [detailTeacher, setDetailTeacher] = useState<Teacher | null>(null)
   const [editingTeacher, setEditingTeacher] = useState<Teacher | null>(null)
   const [creatingTeacher, setCreatingTeacher] = useState(false)
@@ -59,6 +63,44 @@ export default function TeachersPage() {
     return VIETNAM_BANKS.filter((bank) => [bank.shortName, bank.code, bank.name].join(' ').toLocaleLowerCase('vi').includes(keyword))
   }, [bankSearch, selectedBank])
   const teachersQuery = useQuery({ queryKey: ['teachers'], queryFn: getTeachers })
+  const attendanceQuery = useQuery({ queryKey: ['teacher-list-attendance', salaryMonth], queryFn: () => getMonthlyAttendances(salaryMonth, 'ALL') })
+  const salaryMonthQuery = useQuery({ queryKey: ['salary-month', salaryMonth], queryFn: () => getSalaryMonth(salaryMonth) })
+  const salarySummary = useMemo(() => {
+    const summaries = new Map<string, Map<string, { label: string; amount: number; hours: number; sessions: number; children: Set<string> }>>()
+    const countedShadow = new Set<string>()
+    for (const attendance of attendanceQuery.data || []) {
+      const childId = typeof attendance.children === 'string' ? attendance.children : attendance.children._id
+      for (const day of attendance.days) {
+        if (day.absent || !day.teacherId) continue
+        const typeCode = attendance.type === 'THEO_BUOI' ? 'CA_NHAN' : attendance.type
+        const label = typeCode === 'CA_NHAN' ? 'Trung tâm' : typeCode === 'TAI_NHA' ? 'Tại nhà' : typeCode === 'SHADOW' ? 'Shadow' : typeCode === 'CA_NGAY' ? 'Cả ngày' : typeCode
+        const shadowKey = `${attendance._id}_${day.teacherId}`
+        if (typeCode === 'SHADOW' && countedShadow.has(shadowKey)) continue
+        if (typeCode === 'SHADOW') countedShadow.add(shadowKey)
+        const teacherTypes = summaries.get(day.teacherId) || new Map()
+        const current = teacherTypes.get(typeCode) || { label, amount: 0, hours: 0, sessions: 0, children: new Set<string>() }
+        current.amount += typeCode === 'SHADOW' ? day.salaryTeacher : day.spendTime * day.salaryTeacher
+        if (typeCode !== 'SHADOW') current.hours += day.spendTime
+        current.sessions += 1
+        current.children.add(childId)
+        teacherTypes.set(typeCode, current)
+        summaries.set(day.teacherId, teacherTypes)
+      }
+    }
+    return new Map([...summaries].map(([teacherId, types]) => [teacherId, [...types.values()].filter((item) => item.amount > 0 || item.label === 'Tại nhà')]))
+  }, [attendanceQuery.data])
+  const salaryItemsForTeacher = (teacher: Teacher) => {
+    const items = salarySummary.get(teacher._id) || []
+    if (!teacher.type.includes('TAI_NHA') || items.some((item) => item.label === 'Tại nhà')) return items
+    return [...items, { label: 'Tại nhà', amount: 0, hours: 0, sessions: 0, children: new Set<string>() }]
+  }
+  const teacherSalaryTotal = (teacher: Teacher) => {
+    const configuredFixedSalary = teacher.baseSalary + teacher.insuranceSupport + teacher.attendanceBonus + teacher.otherSalary
+    const monthlySalary = salaryMonthQuery.data?.salaries.find((salary) => salary.teacherId === teacher._id)
+    const hasInitializedMonthlySalary = Boolean(monthlySalary && (monthlySalary.baseSalary > 0 || monthlySalary.insuranceSupport > 0 || monthlySalary.attendanceBonus > 0 || monthlySalary.otherSalary > 0))
+    const fixedSalary = hasInitializedMonthlySalary ? monthlySalary!.totalSalary : configuredFixedSalary
+    return fixedSalary + salaryItemsForTeacher(teacher).reduce((sum, item) => sum + item.amount, 0)
+  }
   const updateMutation = useMutation({
     mutationFn: ({ id, data }: { id: string; data: Partial<Teacher> }) => updateTeacher(id, data),
     onSuccess: async () => {
@@ -160,23 +202,21 @@ export default function TeachersPage() {
       <PageHeader eyebrow="Giáo Viên" title="Danh sách Giáo Viên" description="Theo dõi và quản lý hồ sơ, thông tin lương của giáo viên." />
       <Card>
         <CardHeader title={`Danh sách Giáo Viên (${filteredTeachers.length})`} description="Tìm kiếm theo tên, tài khoản, email hoặc số điện thoại." action={<div className="flex gap-2"><Button type="button" size="compact" onClick={() => setCreatingTeacher(true)}><Plus size={15} />Tạo mới</Button><Button type="button" variant="secondary" size="compact" onClick={() => teachersQuery.refetch()} disabled={teachersQuery.isFetching}><RefreshCw size={15} className={teachersQuery.isFetching ? 'spin' : ''} />Làm mới</Button></div>} />
-        <div className="border-b border-border p-4 sm:px-6"><label className="relative block max-w-md"><span className="sr-only">Tìm kiếm giáo viên</span><Search size={17} className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-muted" /><input type="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Tìm kiếm giáo viên..." className="h-10 w-full rounded-xl border border-border bg-app-background pl-10 pr-4 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/15" /></label></div>
+        <div className="flex flex-wrap items-end gap-3 border-b border-border p-4 sm:px-6"><label className="relative min-w-60 flex-1"><span className="sr-only">Tìm kiếm giáo viên</span><Search size={17} className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-muted" /><input type="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Tìm kiếm giáo viên..." className="h-10 w-full rounded-xl border border-border bg-app-background pl-10 pr-4 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/15" /></label><label className="grid gap-1 text-xs font-semibold text-muted">Tháng tính lương<input type="month" value={salaryMonth} onChange={(event) => setSalaryMonth(event.target.value)} className="h-10 rounded-xl border border-border bg-app-background px-3 text-sm font-medium text-text-main outline-none focus:border-primary" /></label></div>
 
         {teachersQuery.isLoading && <div className="flex min-h-64 items-center justify-center gap-2 text-sm text-muted"><Loader2 size={20} className="spin text-primary" />Đang tải danh sách giáo viên...</div>}
         {teachersQuery.isError && <div className="m-5 flex gap-3 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-300"><AlertCircle size={19} /><div><strong>Không thể tải danh sách giáo viên</strong><span className="mt-1 block">{teachersQuery.error instanceof Error ? teachersQuery.error.message : 'Vui lòng thử lại sau.'}</span></div></div>}
         {teachersQuery.isSuccess && filteredTeachers.length === 0 && <div className="grid min-h-64 place-items-center text-center"><div><Users size={34} className="mx-auto text-muted" /><p className="mb-0 mt-3 font-semibold">Không tìm thấy giáo viên</p></div></div>}
 
-        {teachersQuery.isSuccess && filteredTeachers.length > 0 && <Table>
-          <TableHeader><TableRow><TableHead className="text-center">Thứ tự</TableHead><TableHead>Giáo viên</TableHead><TableHead>Loại</TableHead><TableHead>Lương cơ bản</TableHead><TableHead>Hỗ trợ bảo hiểm</TableHead><TableHead>Chuyên cần</TableHead><TableHead>Tổng lương</TableHead><TableHead className="text-right">Thao tác</TableHead></TableRow></TableHeader>
+        {teachersQuery.isSuccess && filteredTeachers.length > 0 && <Table containerClassName="max-h-[calc(100vh-12rem)] overflow-auto">
+          <TableHeader className="sticky top-0 z-20 bg-surface shadow-sm"><TableRow><TableHead>Giáo viên</TableHead><TableHead>Loại</TableHead><TableHead>Lương cố định</TableHead><TableHead>Lương theo loại</TableHead><TableHead>Tổng lương tháng</TableHead><TableHead className="text-right">Thao tác</TableHead></TableRow></TableHeader>
           <TableBody>{filteredTeachers.map((teacher) => <TableRow key={teacher._id}>
-            <TableCell className="text-center font-semibold text-muted">{teacher.order}</TableCell>
-            <TableCell><div className="flex min-w-44 items-center gap-3"><span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-primary/10 font-bold text-primary">{teacher.name.charAt(0).toUpperCase()}</span><div><strong className="block">{teacher.name}</strong><span className={`mt-1 inline-flex rounded-full px-2 py-0.5 text-[10px] font-bold ${teacher.active ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300' : 'bg-red-50 text-red-700 dark:bg-red-500/15 dark:text-red-300'}`}>{teacher.active ? 'Đang hoạt động' : 'Ngừng hoạt động'}</span></div></div></TableCell>
-            <TableCell><div className="flex min-w-32 flex-wrap gap-1">{teacher.type.map((type) => <span key={type} className={`inline-flex rounded-full px-2 py-1 text-[10px] font-bold ${type === 'CA_NGAY' ? 'bg-blue-50 text-blue-700 dark:bg-blue-500/15 dark:text-blue-300' : 'bg-purple-50 text-purple-700 dark:bg-purple-500/15 dark:text-purple-300'}`}>{teacherTypeLabel(type)}</span>)}{teacher.sessionsPerDay > 0 && <span className="text-[10px] text-muted">{teacher.sessionsPerDay} buổi/ngày</span>}</div></TableCell>
-            <TableCell className="whitespace-nowrap font-medium">{formatMoney(teacher.baseSalary)}</TableCell>
-            <TableCell className="whitespace-nowrap">{formatMoney(teacher.insuranceSupport)}</TableCell>
-            <TableCell className="whitespace-nowrap">{formatMoney(teacher.attendanceBonus)}</TableCell>
-            <TableCell className="whitespace-nowrap font-bold text-primary">{formatMoney(teacher.baseSalary + teacher.insuranceSupport + teacher.attendanceBonus + teacher.otherSalary)}</TableCell>
-            <TableCell><div className="flex min-w-64 justify-end gap-2"><Button type="button" variant="secondary" size="sm" onClick={() => setDetailTeacher(teacher)}><Eye size={14} />Thông tin</Button><Button type="button" size="sm" onClick={() => setEditingTeacher(teacher)}><Pencil size={14} />Chỉnh sửa</Button>{teacher.active && <Button type="button" variant="danger" size="sm" disabled={deleteMutation.isPending} onClick={() => { if (window.confirm(`Xóa giáo viên “${teacher.name}”? Giáo viên sẽ chuyển sang trạng thái ngừng hoạt động.`)) deleteMutation.mutate(teacher._id) }}><Trash2 size={14} />Xóa</Button>}</div></TableCell>
+            <TableCell><div className="flex min-w-44 items-center gap-3"><span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-primary/10 font-bold text-primary">{teacher.name.charAt(0).toUpperCase()}</span><div><strong className="block"><span className="mr-1.5 text-muted">{teacher.order}.</span>{teacher.name}</strong><span className={`mt-1 inline-flex rounded-full px-2 py-0.5 text-[10px] font-bold ${teacher.active ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300' : 'bg-red-50 text-red-700 dark:bg-red-500/15 dark:text-red-300'}`}>{teacher.active ? 'Đang hoạt động' : 'Ngừng hoạt động'}</span></div></div></TableCell>
+            <TableCell><div className="grid min-w-28 grid-cols-1 gap-1">{teacher.type.map((type) => <span key={type} className={`inline-flex w-fit items-center justify-center whitespace-nowrap rounded-full px-2 py-1 text-center text-[10px] font-bold ${type === 'CA_NGAY' ? 'bg-blue-50 text-blue-700 dark:bg-blue-500/15 dark:text-blue-300' : 'bg-purple-50 text-purple-700 dark:bg-purple-500/15 dark:text-purple-300'}`}>{teacherTypeLabel(type)}</span>)}{teacher.sessionsPerDay > 0 && <span className="text-[10px] text-muted">{teacher.sessionsPerDay} buổi/ngày</span>}</div></TableCell>
+            <TableCell><div className="grid min-w-48 gap-1 text-xs">{teacher.baseSalary > 0 && <div className="flex items-center justify-between gap-3 rounded-lg bg-surface-muted/60 px-2 py-1.5"><strong>Cơ bản</strong><strong className="whitespace-nowrap text-primary">{formatMoney(teacher.baseSalary)}</strong></div>}{teacher.insuranceSupport > 0 && <div className="flex items-center justify-between gap-3 rounded-lg bg-surface-muted/60 px-2 py-1.5"><strong>Bảo hiểm</strong><strong className="whitespace-nowrap text-primary">{formatMoney(teacher.insuranceSupport)}</strong></div>}{teacher.attendanceBonus > 0 && <div className="flex items-center justify-between gap-3 rounded-lg bg-surface-muted/60 px-2 py-1.5"><strong>Chuyên cần</strong><strong className="whitespace-nowrap text-primary">{formatMoney(teacher.attendanceBonus)}</strong></div>}{teacher.otherSalary > 0 && <div className="flex items-center justify-between gap-3 rounded-lg bg-surface-muted/60 px-2 py-1.5"><strong>Khác</strong><strong className="whitespace-nowrap text-primary">{formatMoney(teacher.otherSalary)}</strong></div>}{teacher.baseSalary + teacher.insuranceSupport + teacher.attendanceBonus + teacher.otherSalary === 0 && <span className="text-muted">—</span>}</div></TableCell>
+            <TableCell><div className="grid min-w-52 gap-1">{attendanceQuery.isLoading ? <span className="text-xs text-muted">Đang tính...</span> : salaryItemsForTeacher(teacher).length ? salaryItemsForTeacher(teacher).map((item) => <Link key={item.label} to={`/students/history?month=${encodeURIComponent(salaryMonth)}&teacher=${encodeURIComponent(teacher.name)}`} title={`Xem lịch sử học của ${teacher.name}`} className="flex items-start justify-between gap-3 rounded-lg bg-surface-muted/60 px-2 py-1.5 text-xs transition hover:bg-primary/10 hover:ring-1 hover:ring-primary/30"><span><strong className="block">{item.label}</strong>{item.label === 'Tại nhà' && item.amount === 0 ? <span className="text-[10px] font-semibold text-red-600">Chưa điểm danh</span> : <span className="text-[10px] text-muted">{item.label === 'Shadow' ? `${item.children.size} trẻ` : `${item.sessions} buổi · ${item.hours}h`}</span>}</span><strong className="whitespace-nowrap text-primary">{item.amount > 0 ? formatMoney(item.amount) : '—'}</strong></Link>) : <span className="text-xs text-muted">—</span>}</div></TableCell>
+            <TableCell className="whitespace-nowrap font-bold text-primary">{formatMoney(teacherSalaryTotal(teacher))}</TableCell>
+            <TableCell><div className="ml-auto grid w-28 gap-1.5"><Button type="button" className="w-full" variant="secondary" size="sm" onClick={() => setDetailTeacher(teacher)}><Eye size={14} />Thông tin</Button><Button type="button" className="w-full" size="sm" onClick={() => setEditingTeacher(teacher)}><Pencil size={14} />Chỉnh sửa</Button>{teacher.active && <Button type="button" className="w-full" variant="danger" size="sm" disabled={deleteMutation.isPending} onClick={() => { if (window.confirm(`Xóa giáo viên “${teacher.name}”? Giáo viên sẽ chuyển sang trạng thái ngừng hoạt động.`)) deleteMutation.mutate(teacher._id) }}><Trash2 size={14} />Xóa</Button>}</div></TableCell>
           </TableRow>)}</TableBody>
         </Table>}
       </Card>
