@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { ArrowUpDown, Check, CheckCircle2, ChevronDown, ChevronUp, Copy, ExternalLink, FileImage, Loader2, Pencil, Search, Send, Trash2, XCircle } from 'lucide-react'
+import { ArrowUpDown, BookOpenText, Check, CheckCircle2, ChevronDown, ChevronUp, Copy, FileImage, Loader2, Pencil, Search, Send, Trash2, XCircle } from 'lucide-react'
 import { type FormEvent, useEffect, useMemo, useRef, useState } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { toBlob } from 'html-to-image'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
@@ -111,6 +111,13 @@ const groupDaysByDate = (days: AttendanceDay[]) => {
 const sessionTeacherNames = (items: AttendanceDay[]) => [...new Set(items.map((item) => item.teacherName).filter(Boolean))].join(', ')
 const scheduledTeacherIds = (config: Parameters<typeof schedulesForDate>[0], date: string) =>
   schedulesForDate(config, date).map((schedule) => schedule.teacherId).filter((id): id is string => Boolean(id))
+const attendanceTeacherIds = (attendance: MonthlyAttendance) => {
+  const child = typeof attendance.children === 'string' ? null : attendance.children
+  return [
+    ...(child?.type || []).flatMap((config) => config.schedules.map((schedule) => schedule.teacherId)),
+    ...attendance.days.map((day) => day.teacherId),
+  ].filter((id): id is string => Boolean(id)).map(String)
+}
 
 function TeacherSalaryLines({ days, selectedTeacherId, onSelect, monthlyTotal = false }: { days: AttendanceDay[]; selectedTeacherId?: string; onSelect?: (teacherId: string) => void; monthlyTotal?: boolean }) {
   const teachers = uniqueAttendanceTeachers(days)
@@ -126,13 +133,6 @@ function TeacherSalaryLines({ days, selectedTeacherId, onSelect, monthlyTotal = 
     </button>
   })}</span>
 }
-const openPlanLink = (planLink?: string) => {
-  const value = planLink?.trim()
-  if (!value) return toast.error('Chưa có đường link kế hoạch')
-  const href = /^https?:\/\//i.test(value) ? value : `https://${value}`
-  window.open(href, '_blank', 'noopener,noreferrer')
-}
-
 function attendanceTotals(attendance: MonthlyAttendance) {
   const child = typeof attendance.children === 'string' ? null : attendance.children
   if (isFullDayType(attendance.type)) {
@@ -151,9 +151,14 @@ function attendanceTotals(attendance: MonthlyAttendance) {
 
 export default function StudentHistoryPage() {
   const queryClient = useQueryClient()
+  const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const requestedMonth = searchParams.get('month')
   const [month, setMonth] = useState(() => requestedMonth && /^\d{4}-(0[1-9]|1[0-2])$/.test(requestedMonth) ? requestedMonth : currentMonth())
+  const openChildPlan = (childId?: string) => {
+    if (!childId) return toast.error('Không tìm thấy trẻ')
+    navigate(`/students/plans?childId=${childId}&month=${month}`)
+  }
   const type = 'ALL' as const
   const [viewMode] = useState<'table' | 'calendar'>('calendar')
   const [selectedChildIds, setSelectedChildIds] = useState<Set<string>>(new Set())
@@ -206,7 +211,7 @@ export default function StudentHistoryPage() {
   const teachersQuery = useQuery({
     queryKey: ['teachers'],
     queryFn: getTeachers,
-    enabled: Boolean(editingChild || findingTeacherFor || (editingDay && needsTeacher(editingDay.attendanceType))),
+    enabled: Boolean(editingChild || findingTeacherFor || teacherFilter || (editingDay && needsTeacher(editingDay.attendanceType))),
   })
   const editingDayPlanQuery = useQuery({
     queryKey: ['attendance-day-plan', month, editingDay?.childId],
@@ -367,6 +372,7 @@ export default function StudentHistoryPage() {
   }
   const teacherOptions = useMemo(() => {
     const teachers = new Map<string, string>()
+    for (const teacher of teachersQuery.data || []) teachers.set(teacher._id, teacher.name)
     for (const attendance of attendanceQuery.data || []) {
       const child = typeof attendance.children === 'string' ? null : attendance.children
       for (const config of child?.type || []) {
@@ -377,28 +383,43 @@ export default function StudentHistoryPage() {
       }
     }
     return [...teachers].sort((left, right) => left[1].localeCompare(right[1], 'vi'))
-  }, [attendanceQuery.data])
+  }, [attendanceQuery.data, teachersQuery.data])
+  const teacherParam = searchParams.get('teacher')?.trim() || ''
   const filteredTeacherId = useMemo(() => {
-    const selectedName = teacherFilter.trim().toLocaleLowerCase('vi')
+    const value = teacherFilter.trim()
+    if (!value) return ''
+    const isId = teacherOptions.some(([id]) => id === value) || (value === teacherParam && !teacherOptions.some(([, name]) => name === value))
+    if (isId) return value
+    const selectedName = value.toLocaleLowerCase('vi')
+    const paramName = teacherOptions.find(([id]) => id === teacherParam)?.[1]?.trim().toLocaleLowerCase('vi')
+    if (teacherParam && paramName === selectedName) return teacherParam
     return teacherOptions.find(([, name]) => name.trim().toLocaleLowerCase('vi') === selectedName)?.[0] || ''
-  }, [teacherFilter, teacherOptions])
+  }, [teacherFilter, teacherOptions, teacherParam])
   useEffect(() => {
-    const keyword = teacherFilter.trim().toLocaleLowerCase('vi')
-    if (!keyword) return
+    if (!filteredTeacherId) return
+    const name = teacherOptions.find(([id]) => id === filteredTeacherId)?.[1]
+    if (name && teacherFilter === filteredTeacherId) setTeacherFilter(name)
+  }, [filteredTeacherId, teacherFilter, teacherOptions])
+  useEffect(() => {
+    if (!teacherFilter.trim()) return
     const childIds = new Set<string>()
     for (const attendance of attendanceQuery.data || []) {
       const child = typeof attendance.children === 'string' ? null : attendance.children
-      const teacherNames = [...(child?.type || []).flatMap((config) => config.schedules.map((schedule) => schedule.teacherName)), ...attendance.days.map((day) => day.teacherName)]
-        .filter(Boolean).join(' ').toLocaleLowerCase('vi')
-      if (teacherNames.includes(keyword)) childIds.add(typeof attendance.children === 'string' ? attendance.children : attendance.children._id)
+      const matches = filteredTeacherId
+        ? attendanceTeacherIds(attendance).includes(filteredTeacherId)
+        : [...(child?.type || []).flatMap((config) => config.schedules.map((schedule) => schedule.teacherName)), ...attendance.days.map((day) => day.teacherName)]
+          .filter(Boolean).join(' ').toLocaleLowerCase('vi')
+          .includes(teacherFilter.trim().toLocaleLowerCase('vi'))
+      if (matches) childIds.add(typeof attendance.children === 'string' ? attendance.children : attendance.children._id)
     }
     setSelectedChildIds(childIds)
-  }, [attendanceQuery.data, teacherFilter])
+  }, [attendanceQuery.data, filteredTeacherId, teacherFilter])
   const matchingHistoryRows = useMemo(
     () => (attendanceQuery.data || []).filter((attendance) => {
+      if (!teacherFilter.trim()) return true
+      if (filteredTeacherId) return attendanceTeacherIds(attendance).includes(filteredTeacherId)
       const child = typeof attendance.children === 'string' ? null : attendance.children
       const teacherKeyword = teacherFilter.trim().toLocaleLowerCase('vi')
-      if (!teacherKeyword) return true
       const teacherNames = [...(child?.type || []).flatMap((config) => config.schedules.map((schedule) => schedule.teacherName)), ...attendance.days.map((day) => day.teacherName)]
         .filter(Boolean).join(' ').toLocaleLowerCase('vi')
       return teacherNames.includes(teacherKeyword)
@@ -413,7 +434,7 @@ export default function StudentHistoryPage() {
       if (childOrder !== 0) return childOrder
       return left.type === right.type ? 0 : isFullDayType(left.type) ? -1 : 1
     }),
-    [attendanceQuery.data, teacherFilter],
+    [attendanceQuery.data, filteredTeacherId, teacherFilter],
   )
   const historyRows = useMemo(
     () => selectedChildIds.size > 0
@@ -694,7 +715,7 @@ export default function StudentHistoryPage() {
                           <span className="mt-0.5 block text-[10px] font-semibold text-blue-600 dark:text-blue-300">{childTypeText(child)}</span>
                           <span className="block text-xs text-muted">{formatBirthDate(child?.birthDate)}</span>
                         </div>
-                      </div><Button type="button" size="sm" variant="secondary" onClick={() => child && setEditingChild(child)}><Pencil size={13} />Cập nhật Trẻ</Button><Button type="button" size="sm" variant="secondary" onClick={() => openPlanLink(child?.planLink)}><ExternalLink size={13} />Kế hoạch</Button><Button type="button" size="sm" variant="secondary" onClick={() => setReceiptGroup({ childId, rows: childRows })}><FileImage size={13} />Xuất phiếu</Button><div className="grid grid-cols-2 divide-x divide-border overflow-hidden rounded-lg border border-border"><span className="grid gap-0.5 bg-emerald-50 px-2 py-1.5 text-[10px] text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300">Tổng thu<strong className="whitespace-nowrap text-[11px]">{formatMoney(childTotals.revenue)}</strong></span><span className="grid gap-0.5 bg-red-50 px-2 py-1.5 text-[10px] text-red-700 dark:bg-red-500/15 dark:text-red-300">Tổng chi<strong className="whitespace-nowrap text-[11px]">{formatMoney(childTotals.expense)}</strong></span></div><AttendanceStatusList rows={childRows} /></div>
+                      </div><Button type="button" size="sm" variant="secondary" onClick={() => child && setEditingChild(child)}><Pencil size={13} />Cập nhật Trẻ</Button><Button type="button" size="sm" variant="secondary" onClick={() => openChildPlan(childId)}><BookOpenText size={13} />Kế hoạch</Button><Button type="button" size="sm" variant="secondary" onClick={() => setReceiptGroup({ childId, rows: childRows })}><FileImage size={13} />Xuất phiếu</Button><div className="grid grid-cols-2 divide-x divide-border overflow-hidden rounded-lg border border-border"><span className="grid gap-0.5 bg-emerald-50 px-2 py-1.5 text-[10px] text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300">Tổng thu<strong className="whitespace-nowrap text-[11px]">{formatMoney(childTotals.revenue)}</strong></span><span className="grid gap-0.5 bg-red-50 px-2 py-1.5 text-[10px] text-red-700 dark:bg-red-500/15 dark:text-red-300">Tổng chi<strong className="whitespace-nowrap text-[11px]">{formatMoney(childTotals.expense)}</strong></span></div><AttendanceStatusList rows={childRows} /></div>
                     </TableCell>}
                     <TableCell className="text-center">
                       <div className="mb-1 max-w-32 rounded-lg border border-blue-200 bg-blue-50/60 px-2 py-1 text-xs leading-snug text-text-main dark:border-blue-500/30 dark:bg-blue-500/10 sm:hidden"><strong className="block whitespace-normal">{child?.name || `Trẻ #${attendance.children}`}</strong><span className="mt-0.5 block text-[9px] font-semibold text-blue-600 dark:text-blue-300">{childTypeText(child)}</span></div>
@@ -751,7 +772,7 @@ export default function StudentHistoryPage() {
                       <div className="grid shrink-0 justify-items-center gap-0.5"><img src={child?.avatar || defaultAvatar(child?.gender)} onError={(event) => { event.currentTarget.src = defaultAvatar(child?.gender) }} alt={`Ảnh ${child?.name || 'trẻ'}`} className="h-10 w-10 rounded-lg bg-surface-muted object-cover" /><span className="max-w-14 truncate text-[8px] leading-none text-muted" title={`ID: ${child?._id || childId}`}>ID: {child?._id || childId}</span></div>
                       <div className="min-w-0"><strong className="block whitespace-normal break-words leading-snug">{child?.name || `Trẻ #${childId}`}</strong><span className="mt-0.5 block text-[10px] font-semibold text-blue-600 dark:text-blue-300">{childTypeText(child)}</span><span className="block text-xs text-muted">{formatBirthDate(child?.birthDate)}</span></div></div>
                       <Button type="button" size="sm" variant="secondary" onClick={() => child && setEditingChild(child)}><Pencil size={13} />Cập nhật Trẻ</Button>
-                      <Button type="button" size="sm" variant="secondary" onClick={() => openPlanLink(child?.planLink)}><ExternalLink size={13} />Kế hoạch</Button>
+                      <Button type="button" size="sm" variant="secondary" onClick={() => openChildPlan(childId)}><BookOpenText size={13} />Kế hoạch</Button>
                       <Button type="button" size="sm" variant="secondary" onClick={() => setReceiptGroup({ childId, rows })}><FileImage size={13} />Xuất phiếu</Button>
                       <div className="grid grid-cols-2 divide-x divide-border overflow-hidden rounded-lg border border-border"><span className="grid gap-0.5 bg-emerald-50 px-2 py-1.5 text-[10px] text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300">Tổng thu<strong className="whitespace-nowrap text-[11px]">{formatMoney(childTotals.revenue)}</strong></span><span className="grid gap-0.5 bg-red-50 px-2 py-1.5 text-[10px] text-red-700 dark:bg-red-500/15 dark:text-red-300">Tổng chi<strong className="whitespace-nowrap text-[11px]">{formatMoney(childTotals.expense)}</strong></span></div>
                       <AttendanceStatusList rows={rows} />
@@ -763,7 +784,7 @@ export default function StudentHistoryPage() {
                       <div className="grid grid-cols-2 items-start gap-2">
                         <div className="grid gap-2">
                           <Button type="button" size="sm" variant="secondary" onClick={() => child && setEditingChild(child)}><Pencil size={13} />Cập nhật Trẻ</Button>
-                          <Button type="button" size="sm" variant="secondary" onClick={() => openPlanLink(child?.planLink)}><ExternalLink size={13} />Kế hoạch</Button>
+                          <Button type="button" size="sm" variant="secondary" onClick={() => openChildPlan(childId)}><BookOpenText size={13} />Kế hoạch</Button>
                           <Button type="button" size="sm" variant="secondary" onClick={() => setReceiptGroup({ childId, rows })}><FileImage size={13} />Xuất phiếu</Button>
                         </div>
                         <div className="grid gap-2">

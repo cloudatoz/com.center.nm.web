@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Eye, Loader2, Pencil, Save, Search } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Card, CardHeader } from '@/components/ui/card'
@@ -81,14 +82,24 @@ const TEMPLATE_CONTENTS = new Map([
 
 export default function StudentPlansPage() {
   const queryClient = useQueryClient()
-  const [month, setMonth] = useState(currentMonth)
-  const [selectedChildId, setSelectedChildId] = useState('')
+  const [searchParams] = useSearchParams()
+  const requestedChildId = searchParams.get('childId') || ''
+  const requestedMonth = searchParams.get('month')
+  const [month, setMonth] = useState(() => requestedMonth && /^\d{4}-(0[1-9]|1[0-2])$/.test(requestedMonth) ? requestedMonth : currentMonth())
+  const [selectedChildId, setSelectedChildId] = useState(requestedChildId)
   const [search, setSearch] = useState('')
   const [days, setDays] = useState<PlanDay[]>([])
   const [isDirty, setIsDirty] = useState(false)
   const [isViewMode, setIsViewMode] = useState(false)
   const [year, monthNumber] = month.split('-').map(Number)
   const totalDays = new Date(year, monthNumber, 0).getDate()
+
+  useEffect(() => {
+    if (requestedChildId) setSelectedChildId(requestedChildId)
+  }, [requestedChildId])
+  useEffect(() => {
+    if (requestedMonth && /^\d{4}-(0[1-9]|1[0-2])$/.test(requestedMonth)) setMonth(requestedMonth)
+  }, [requestedMonth])
 
   const childrenQuery = useQuery({ queryKey: ['children'], queryFn: getChildren })
   const plansQuery = useQuery({
