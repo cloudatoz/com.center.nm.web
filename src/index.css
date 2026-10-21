@@ -186,6 +186,16 @@
   background: #d1fae5;
 }
 
+.selected-child-attention {
+  border-color: #7c3aed !important;
+  box-shadow: 0 0 0 2px rgb(124 58 237 / 45%), 0 5px 12px rgb(76 29 149 / 18%);
+}
+
+[data-theme="dark"] .selected-child-attention {
+  border-color: #a78bfa !important;
+  box-shadow: 0 0 0 2px rgb(167 139 250 / 55%), 0 5px 12px rgb(0 0 0 / 28%);
+}
+
 [data-theme="dark"] .complete-attention {
   color: #6ee7b7 !important;
   background: #059669 !important;
@@ -218,6 +228,7 @@
   .complete-attention::before {
     background: #10b981;
   }
+
 }
 
 ::-webkit-scrollbar {

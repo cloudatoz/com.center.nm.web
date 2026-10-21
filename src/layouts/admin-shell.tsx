@@ -86,7 +86,7 @@ export function AdminShell() {
   const roleLabel = (currentUser?.role || 'admin').toUpperCase()
   const visibleNavItems = currentUser?.role === 'teacher'
     ? ADMIN_NAV_ITEMS.filter((item) => item.id === 'students').map((item) => isNavGroup(item)
-      ? { ...item, children: item.children.filter((child) => child.id === 'students-history') }
+      ? { ...item, children: item.children.filter((child) => ['students-history', 'students-plans'].includes(child.id)) }
       : item)
     : ADMIN_NAV_ITEMS
 

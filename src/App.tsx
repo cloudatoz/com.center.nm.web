@@ -40,7 +40,7 @@ function ProtectedRoute() {
   const session = useAuthStore((state) => state.session)
   const location = useLocation()
   if (!session) return <Navigate to="/login" replace />
-  if (session.user.role === 'teacher' && location.pathname !== '/students/history') {
+  if (session.user.role === 'teacher' && !['/students/history', '/students/plans'].includes(location.pathname)) {
     return <Navigate to="/students/history" replace />
   }
   return <AdminShell />

@@ -10,10 +10,11 @@ import { Modal } from '@/components/ui/modal'
 import { PageHeader } from '@/components/ui/page-header'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { boardingTotal, configForAttendance, lessonConfigType, schedulesForDate } from '@/lib/child-pricing'
+import { randomPlanTemplate } from '@/lib/plan-template-samples'
 import { getAccountBanks, getVietQrImage } from '@/services/apis/account-bank-api'
 import { createAttendance, deleteAttendanceDay, type AttendanceType, getMonthlyAttendances, type MonthlyAttendance, setAttendanceCompleted, updateAttendanceDay, updateAttendanceNote } from '@/services/apis/attendance-api'
 import { type Child, type ChildTypeCode, getChildren, updateChild } from '@/services/apis/children-api'
-import { getPlans } from '@/services/apis/plan-api'
+import { createPlan, getPlans, PLAN_CATEGORIES, type PlanItem, updatePlan } from '@/services/apis/plan-api'
 import { getTeachers } from '@/services/apis/teachers-api'
 import { useAuthStore } from '@/stores/auth-store'
 import { ChildAgeEditor, readChildAges } from './child-age-editor'
@@ -212,6 +213,8 @@ export default function StudentHistoryPage() {
   const [editNotes, setEditNotes] = useState('')
   const [editLessonType, setEditLessonType] = useState('HỌC')
   const [customLessonType, setCustomLessonType] = useState(false)
+  const [editingDayPlanItems, setEditingDayPlanItems] = useState<PlanItem[]>([])
+  const [isDayPlanCompact, setIsDayPlanCompact] = useState(true)
   const [receiptGroup, setReceiptGroup] = useState<{ childId: string; rows: MonthlyAttendance[] } | null>(null)
   const [copyingReceipt, setCopyingReceipt] = useState(false)
   const [selectedBankId, setSelectedBankId] = useState('')
@@ -246,10 +249,10 @@ export default function StudentHistoryPage() {
     queryFn: getChildren,
   })
   useEffect(() => {
-    if (!childrenQuery.isSuccess || teacherFilter.trim() || initializedChildSelection.current) return
+    if (!isTeacherSession || !childrenQuery.isSuccess || teacherFilter.trim() || initializedChildSelection.current) return
     initializedChildSelection.current = true
     setSelectedChildIds(new Set(childrenQuery.data.map((child) => child._id)))
-  }, [childrenQuery.data, childrenQuery.isSuccess, teacherFilter])
+  }, [childrenQuery.data, childrenQuery.isSuccess, isTeacherSession, teacherFilter])
   const teachersQuery = useQuery({
     queryKey: ['teachers'],
     queryFn: getTeachers,
@@ -271,11 +274,39 @@ export default function StudentHistoryPage() {
   }, [teacherSearch, teachersQuery.data])
   const selectedTeacherName = (teachersQuery.data || []).find((teacher) => teacher._id === selectedTeacherId)?.name
   const editTeacherName = (teachersQuery.data || []).find((teacher) => teacher._id === editTeacherId)?.name
-  const editingDayPlanItems = useMemo(() => {
-    if (!editingDay) return []
-    return (editingDayPlanQuery.data?.[0]?.days.find((day) => day.date.slice(0, 10) === editingDay.date)?.items || [])
-      .filter((item) => item.content.trim())
+  useEffect(() => {
+    if (!editingDay) return setEditingDayPlanItems([])
+    setIsDayPlanCompact(true)
+    const existingItems = editingDayPlanQuery.data?.[0]?.days.find((day) => day.date.slice(0, 10) === editingDay.date)?.items || []
+    setEditingDayPlanItems(PLAN_CATEGORIES.map((category) => ({
+      ...category,
+      content: existingItems.find((item) => item.key === category.key)?.content || '',
+    })))
   }, [editingDay, editingDayPlanQuery.data])
+  const updateDayPlanMutation = useMutation({
+    mutationFn: async () => {
+      if (!editingDay) throw new Error('Không tìm thấy ngày học')
+      const currentPlan = editingDayPlanQuery.data?.[0]
+      const planDay = { date: editingDay.date, items: editingDayPlanItems }
+      if (!currentPlan) return createPlan(month, editingDay.childId, [planDay])
+      const otherDays = currentPlan.days.filter((day) => day.date.slice(0, 10) !== editingDay.date)
+      return updatePlan(currentPlan._id, [...otherDays, planDay].sort((left, right) => left.date.localeCompare(right.date)))
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['attendance-day-plan', month, editingDay?.childId] })
+      toast.success('Đã cập nhật kế hoạch ngày học')
+    },
+    onError: (error) => toast.error(error instanceof Error ? error.message : 'Không thể cập nhật kế hoạch'),
+  })
+  const fillDayPlanExample = (itemIndex: number) => {
+    const item = editingDayPlanItems[itemIndex]
+    const child = childrenQuery.data?.find((current) => current._id === editingDay?.childId)
+    if (!item || !child) return
+    const age = child.ages.find((current) => current.id === item.key)?.age ?? 3
+    const content = randomPlanTemplate(age, item.key, item.content)
+    if (!content) return toast.error('Hiện chỉ có nội dung mẫu dành cho trẻ từ 3 đến 6 tuổi')
+    setEditingDayPlanItems((current) => current.map((currentItem, index) => index === itemIndex ? { ...currentItem, content } : currentItem))
+  }
   const companyBank = accountBanksQuery.data?.find((bank) => bank.accountNumber === '1057884906')
   const updateCachedAttendance = (updated: MonthlyAttendance) => {
     queryClient.setQueryData<MonthlyAttendance[]>(['student-history', month, type], (current) => {
@@ -647,7 +678,7 @@ export default function StudentHistoryPage() {
       <PageHeader
         eyebrow="Học Sinh"
         title="Lịch sử học"
-        description="Theo dõi ngày học của từng trẻ theo tháng và loại học."
+        description=""
       />
 
       <Card className="min-w-0 overflow-hidden">
@@ -691,7 +722,7 @@ export default function StudentHistoryPage() {
               key={child._id}
               type="button"
               onClick={() => setSelectedChildIds((current) => { const next = new Set(current); if (next.has(child._id)) next.delete(child._id); else next.add(child._id); return next })}
-              className={`relative flex h-11 min-w-0 flex-col items-center justify-center rounded-lg border px-1.5 pl-6 text-center font-normal leading-tight transition hover:-translate-y-0.5 hover:shadow-sm ${isSent ? 'border-blue-400 bg-blue-100 text-blue-900 dark:border-blue-500/60 dark:bg-blue-500/20 dark:text-blue-200' : isCompleted ? 'border-emerald-400 bg-emerald-100 text-emerald-900 dark:border-emerald-500/60 dark:bg-emerald-500/20 dark:text-emerald-200' : 'border-red-400 bg-white text-slate-900 dark:border-red-500/60 dark:bg-surface dark:text-slate-100'} ${selectedChildIds.has(child._id) ? 'ring-2 ring-violet-500 ring-offset-1 dark:ring-offset-surface' : ''}`}
+              className={`relative flex h-11 min-w-0 flex-col items-center justify-center rounded-lg border px-1.5 pl-6 text-center font-normal leading-tight transition hover:-translate-y-0.5 hover:shadow-sm ${isSent ? 'border-blue-400 bg-blue-100 text-blue-900 dark:border-blue-500/60 dark:bg-blue-500/20 dark:text-blue-200' : isCompleted ? 'border-emerald-400 bg-emerald-100 text-emerald-900 dark:border-emerald-500/60 dark:bg-emerald-500/20 dark:text-emerald-200' : 'border-red-400 bg-white text-slate-900 dark:border-red-500/60 dark:bg-surface dark:text-slate-100'} ${selectedChildIds.has(child._id) ? 'selected-child-attention' : ''}`}
             >{isSent ? <Send size={13} className="absolute left-1.5 top-1.5 text-blue-600" aria-label="Đã gửi phụ huynh" /> : isCompleted ? <CheckCircle2 size={13} className="absolute left-1.5 top-1.5 text-emerald-600" aria-label="Đã điểm danh" /> : <XCircle size={13} className="absolute left-1.5 top-1.5 text-red-600" aria-label="Chưa điểm danh" />}<span className="w-full truncate text-xs">{child.name}</span><span className="mt-0.5 w-full truncate text-[9px] font-semibold opacity-70">{childTypeText(child)}</span></button>)}
           </div>
           {childTiles.length === 0 && <p className="m-0 py-3 text-center text-sm text-muted">Không tìm thấy học sinh.</p>}
@@ -821,15 +852,15 @@ export default function StudentHistoryPage() {
                   <div className="grid gap-3 p-3">
                     <div className="grid gap-2 rounded-xl border border-blue-200 bg-blue-50/60 p-2 dark:border-blue-500/30 dark:bg-blue-500/10 sm:hidden">
                       <div className="flex min-w-0 items-center gap-1.5"><strong className="min-w-0 truncate text-sm">{child?.name || `Trẻ #${childId}`}</strong><span className="shrink-0 truncate text-[10px] font-semibold text-blue-600 dark:text-blue-300">· {childTypeText(child)}</span></div>
-                      <div className="grid grid-cols-2 items-start gap-2">
+                      <div className={`grid items-start gap-2 ${isTeacherSession ? 'grid-cols-1' : 'grid-cols-2'}`}>
                         {!isTeacherSession && <div className="grid gap-2">
                           <Button type="button" size="sm" variant="secondary" onClick={() => child && setEditingChild(child)}><Pencil size={13} />Cập nhật Trẻ</Button>
                           <Button type="button" size="sm" variant="secondary" onClick={() => openChildPlan(childId)}><BookOpenText size={13} />Kế hoạch</Button>
                           <Button type="button" size="sm" variant="secondary" onClick={() => setReceiptGroup({ childId, rows })}><FileImage size={13} />Xuất phiếu</Button>
                         </div>}
-                        <div className="grid gap-2">
+                        {!isTeacherSession && <div className="grid gap-2">
                           <AttendanceStatusList rows={rows} />
-                        </div>
+                        </div>}
                       </div>
                       {!isTeacherSession && <div className="grid grid-cols-2 divide-x divide-border overflow-hidden rounded-lg border border-border">
                         <span className="inline-flex min-w-0 items-center justify-between gap-1 bg-emerald-50 px-2 py-1.5 text-[11px] text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300"><span>Tổng thu</span><strong className="whitespace-nowrap">{formatMoney(childTotals.revenue)}</strong></span>
@@ -846,11 +877,11 @@ export default function StudentHistoryPage() {
                           <div><strong className="block text-text-main">Xác nhận điểm danh</strong><span className="mt-1 block text-muted">Bạn muốn điểm danh bé <strong className="text-text-main">“{attendanceConfirmation.childName}”</strong> không?</span></div>
                           <div className="grid grid-cols-2 gap-2"><Button type="button" size="sm" variant="secondary" onClick={() => closeAttendanceConfirmation(false)}>Hủy</Button><Button type="button" size="sm" onClick={() => closeAttendanceConfirmation(true)}><CheckCircle2 size={14} />Xác nhận</Button></div>
                         </div>}
-                        <div className="flex items-center justify-center gap-2 py-1 text-center text-[11px] font-bold sm:hidden">
-                          <span className={`rounded-full border px-2.5 py-1 ${isFullDayType(attendance.type) ? 'border-blue-300 text-blue-700 dark:border-blue-500/50 dark:text-blue-300' : 'border-purple-300 text-purple-700 dark:border-purple-500/50 dark:text-purple-300'}`}>{attendanceTypeLabel(attendance.type)}</span>
+                        {!needsTeacher(attendance.type) && <div className="flex items-center gap-2 rounded-lg bg-blue-50/70 px-2.5 py-2 text-[11px] font-bold dark:bg-blue-500/10 sm:hidden">
+                          <span className="text-blue-700 dark:text-blue-300">{attendanceTypeLabel(attendance.type)}</span>
                           <span className="text-muted">·</span>
                           <span className={`inline-flex items-center gap-1 whitespace-nowrap ${attendance.isCompleted ? 'text-emerald-700 dark:text-emerald-300' : 'text-amber-700 dark:text-amber-300'}`}>{attendance.isCompleted ? <CheckCircle2 size={12} /> : <XCircle size={12} />}{attendance.isCompleted ? 'Hoàn thành điểm danh' : 'Chưa điểm danh'}</span>
-                        </div>
+                        </div>}
                         <div className="flex flex-wrap items-center justify-between gap-3">
                           <div className="grid gap-1 sm:flex sm:flex-wrap sm:items-center sm:gap-2">
                             <span className={`hidden w-fit shrink-0 whitespace-nowrap rounded-full px-2 py-1 text-[10px] font-bold sm:inline-flex ${isFullDayType(attendance.type) ? 'bg-blue-50 text-blue-700 dark:bg-blue-500/15 dark:text-blue-300' : 'bg-purple-50 text-purple-700 dark:bg-purple-500/15 dark:text-purple-300'}`}>{attendanceTypeLabel(attendance.type)}</span>
@@ -859,7 +890,7 @@ export default function StudentHistoryPage() {
                           </div>
                           <div className="hidden sm:block"><Button type="button" size="sm" variant="secondary" className="complete-attention h-7 px-2 text-sm" disabled={finishEditMutation.isPending || dayMutation.isPending} onClick={() => finishEditMutation.mutate(attendance)}><CheckCircle2 size={13} />Hoàn tất điểm danh</Button></div>
                         </div>
-                        {needsTeacher(attendance.type) && <div className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg bg-purple-50/70 px-2.5 py-2 text-xs dark:bg-purple-500/10"><span>GV: <strong className="text-blue-600 dark:text-blue-400">{attendanceTeacherNames(attendance.days, pricingConfig?.schedules.map((schedule) => schedule.teacherName).filter(Boolean).join(', '))}</strong></span>{!isTeacherSession && <span className="contents">{child && <Button type="button" size="sm" variant="secondary" className={FIND_TEACHER_BUTTON_CLASS} onClick={() => { setFindingTeacherFor({ child: child as Child, childName: child.name || `Trẻ #${childId}`, typeCode: pricingConfig?.type || lessonConfigType(latestSnapshot?.lessonType), teacherId: pricingConfig?.teacherId }); setTeacherSearch(''); setTeacherHourlySalary(String(pricingConfig?.teacherPrice || 130000)); setSelectedTeacherId(pricingConfig?.teacherId || '') }}><Search size={12} />Tìm GV</Button>}<TeacherSalaryLines days={attendance.days} selectedTeacherId={selectedAttendanceTeachers[attendance._id]} onSelect={(teacherId) => setSelectedAttendanceTeachers((current) => ({ ...current, [attendance._id]: teacherId }))} /><span>Học phí: <strong className="text-emerald-600 dark:text-emerald-300">{formatMoney(latestSnapshot?.tuitionFee || pricingConfig?.price || 0)}</strong></span></span>}</div>}
+                        {needsTeacher(attendance.type) && <div className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg bg-purple-50/70 px-2.5 py-2 text-xs dark:bg-purple-500/10"><div className="flex w-full items-center gap-2 border-b border-purple-200 pb-1.5 text-[11px] font-bold dark:border-purple-500/30 sm:hidden"><span className="text-purple-700 dark:text-purple-300">{attendanceTypeLabel(attendance.type)}</span><span className="text-muted">·</span><span className={`inline-flex items-center gap-1 ${attendance.isCompleted ? 'text-emerald-700 dark:text-emerald-300' : 'text-amber-700 dark:text-amber-300'}`}>{attendance.isCompleted ? <CheckCircle2 size={12} /> : <XCircle size={12} />}{attendance.isCompleted ? 'Hoàn thành điểm danh' : 'Chưa điểm danh'}</span></div><span>GV: <strong className="text-blue-600 dark:text-blue-400">{attendanceTeacherNames(attendance.days, pricingConfig?.schedules.map((schedule) => schedule.teacherName).filter(Boolean).join(', '))}</strong></span>{!isTeacherSession && <span className="contents">{child && <Button type="button" size="sm" variant="secondary" className={FIND_TEACHER_BUTTON_CLASS} onClick={() => { setFindingTeacherFor({ child: child as Child, childName: child.name || `Trẻ #${childId}`, typeCode: pricingConfig?.type || lessonConfigType(latestSnapshot?.lessonType), teacherId: pricingConfig?.teacherId }); setTeacherSearch(''); setTeacherHourlySalary(String(pricingConfig?.teacherPrice || 130000)); setSelectedTeacherId(pricingConfig?.teacherId || '') }}><Search size={12} />Tìm GV</Button>}<TeacherSalaryLines days={attendance.days} selectedTeacherId={selectedAttendanceTeachers[attendance._id]} onSelect={(teacherId) => setSelectedAttendanceTeachers((current) => ({ ...current, [attendance._id]: teacherId }))} /><span>Học phí: <strong className="text-emerald-600 dark:text-emerald-300">{formatMoney(latestSnapshot?.tuitionFee || pricingConfig?.price || 0)}</strong></span></span>}</div>}
                         <div className="flex justify-end sm:hidden"><Button type="button" size="sm" variant="secondary" className="complete-attention w-full" disabled={finishEditMutation.isPending || dayMutation.isPending} onClick={() => finishEditMutation.mutate(attendance)}><CheckCircle2 size={13} />Hoàn tất điểm danh</Button></div>
                         <div className="grid min-w-0 grid-cols-7 gap-0.5 sm:gap-1">{CALENDAR_WEEKDAYS.map((weekday, weekdayIndex) => <div key={weekday} className={`min-w-0 border-b border-r border-border px-0.5 py-1.5 text-center text-[11px] font-bold text-muted last:border-r-0 sm:px-1 sm:text-[13px] lg:text-sm ${weekdayIndex >= 5 ? 'bg-slate-200/80 dark:bg-slate-700/70' : 'bg-amber-100/90 dark:bg-amber-500/20'}`}>{weekday}</div>)}
                           {calendarDays.map((day, index) => {
@@ -1017,10 +1048,11 @@ export default function StudentHistoryPage() {
           })
         }} className="grid gap-5">
           <section className="grid gap-2 rounded-xl border border-emerald-200 bg-emerald-50/60 p-3 dark:border-emerald-500/30 dark:bg-emerald-500/10">
-            <div className="flex items-center justify-between gap-2"><strong className="text-sm text-emerald-800 dark:text-emerald-200">Kế hoạch ngày này</strong>{editingDayPlanQuery.isFetching && <Loader2 size={14} className="spin text-emerald-600" />}</div>
+            <div className="flex items-center justify-between gap-2"><strong className="text-sm text-emerald-800 dark:text-emerald-200">Kế hoạch ngày này</strong><span className="flex items-center gap-2">{editingDayPlanQuery.isFetching && <Loader2 size={14} className="spin text-emerald-600" />}<Button type="button" size="sm" variant="secondary" className="h-7 px-2 text-[10px]" onClick={() => setIsDayPlanCompact((current) => !current)}>{isDayPlanCompact ? 'Chỉnh sửa' : 'Xem rút gọn'}</Button></span></div>
             {editingDayPlanQuery.isError && <span className="text-xs text-red-600">Không thể tải kế hoạch.</span>}
-            {editingDayPlanQuery.isSuccess && editingDayPlanItems.length === 0 && <span className="text-xs text-emerald-700/70 dark:text-emerald-200/70">Chưa có nội dung kế hoạch cho ngày này.</span>}
-            {editingDayPlanItems.length > 0 && <div className="grid max-h-52 gap-2 overflow-y-auto pr-1">{editingDayPlanItems.map((item) => <div key={item.key} className="rounded-lg border border-emerald-200 bg-white p-2.5 dark:border-emerald-500/20 dark:bg-surface"><strong className="block text-xs text-emerald-800 dark:text-emerald-200">{item.title}</strong><p className="m-0 mt-1 whitespace-pre-wrap text-sm leading-relaxed text-text-main">{item.content}</p></div>)}</div>}
+            {editingDayPlanQuery.isSuccess && isDayPlanCompact && <div className="grid max-h-52 gap-2 overflow-y-auto pr-1">{editingDayPlanItems.some((item) => item.content.trim()) ? editingDayPlanItems.filter((item) => item.content.trim()).map((item) => <div key={item.key} className="rounded-lg border border-emerald-200 bg-white p-2.5 dark:border-emerald-500/20 dark:bg-surface"><strong className="block text-xs text-emerald-800 dark:text-emerald-200">{item.title}</strong><p className="m-0 mt-1 whitespace-pre-wrap text-sm leading-relaxed text-text-main">{item.content}</p></div>) : <span className="text-xs text-emerald-700/70 dark:text-emerald-200/70">Chưa có nội dung kế hoạch cho ngày này.</span>}</div>}
+            {editingDayPlanQuery.isSuccess && !isDayPlanCompact && <div className="grid max-h-72 gap-2 overflow-y-auto pr-1">{editingDayPlanItems.map((item, itemIndex) => <label key={item.key} className="grid gap-1 rounded-lg border border-emerald-200 bg-white p-2.5 text-xs font-semibold text-emerald-800 dark:border-emerald-500/20 dark:bg-surface dark:text-emerald-200"><span className="flex items-center justify-between gap-2"><span>{item.title}</span><Button type="button" size="sm" variant="secondary" className="h-7 shrink-0 px-2 text-[10px]" onClick={() => fillDayPlanExample(itemIndex)}>Điền mẫu</Button></span><textarea rows={2} value={item.content} onChange={(event) => setEditingDayPlanItems((current) => current.map((currentItem, index) => index === itemIndex ? { ...currentItem, content: event.target.value } : currentItem))} placeholder="Nhập nội dung kế hoạch..." className="resize-y rounded-lg border border-border bg-app-background px-2.5 py-2 text-sm font-normal text-text-main outline-none focus:border-emerald-500" /></label>)}</div>}
+            {!isDayPlanCompact && <div className="flex justify-end"><Button type="button" size="sm" disabled={!editingDayPlanQuery.isSuccess || updateDayPlanMutation.isPending} onClick={() => updateDayPlanMutation.mutate()}>{updateDayPlanMutation.isPending && <Loader2 size={14} className="spin" />}Cập nhật kế hoạch</Button></div>}
           </section>
           {editingDay && !isFullDayType(editingDay.attendanceType) && <label className="grid gap-2 text-sm font-semibold">
             Loại buổi học

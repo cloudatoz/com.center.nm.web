@@ -185,7 +185,7 @@ export default function StudentPlansPage() {
   }
 
   return <div className="grid min-w-0 gap-4">
-    <PageHeader eyebrow="Học Sinh" title="Kế hoạch" description="Lập kế hoạch phát triển cho từng trẻ theo ngày và theo tháng." />
+    <PageHeader eyebrow="Học Sinh" title="Kế hoạch" description="" />
     <Card className="min-w-0 overflow-hidden">
       <CardHeader title={`Kế hoạch Tháng ${monthNumber}/${year}`} description={selectedChild ? `Trẻ: ${selectedChild.name} · ${days.length} ngày có kế hoạch` : 'Chọn trẻ để bắt đầu lập kế hoạch'} />
       <div className="flex flex-wrap gap-3 border-b border-border p-4 sm:px-6">
