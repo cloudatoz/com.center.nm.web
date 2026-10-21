@@ -84,6 +84,11 @@ export function AdminShell() {
   const displayName = currentUser?.name || currentUser?.email || 'Admin'
   const userInitial = displayName.charAt(0).toUpperCase()
   const roleLabel = (currentUser?.role || 'admin').toUpperCase()
+  const visibleNavItems = currentUser?.role === 'teacher'
+    ? ADMIN_NAV_ITEMS.filter((item) => item.id === 'students').map((item) => isNavGroup(item)
+      ? { ...item, children: item.children.filter((child) => child.id === 'students-history') }
+      : item)
+    : ADMIN_NAV_ITEMS
 
   return (
     <div className="flex min-h-screen bg-app-background text-text-main">
@@ -122,7 +127,7 @@ export function AdminShell() {
         </div>
 
         <nav className="flex-1 space-y-1.5 overflow-y-auto px-3 pb-4" aria-label="Admin navigation">
-          {ADMIN_NAV_ITEMS.map((item) => {
+          {visibleNavItems.map((item) => {
             if (isNavGroup(item)) {
               const isGroupActive = item.children.some((child) =>
                 location.pathname.startsWith(child.to),

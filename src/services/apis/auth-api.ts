@@ -7,6 +7,7 @@ const adminLoginSchema = z.object({
   accessToken: z.string().optional(),
   access_token: z.string().optional(),
   user: z.record(z.string(), z.unknown()).optional(),
+  teacher: z.record(z.string(), z.unknown()).optional(),
 })
 
 function normalizeAdminSession(body: unknown): AuthSession {
@@ -19,12 +20,13 @@ function normalizeAdminSession(body: unknown): AuthSession {
   const token = parsed.data.token || parsed.data.accessToken || parsed.data.access_token
   if (!token) throw new ApiContractError('Login response did not include an access token')
 
-  const rawUser = parsed.data.user || {}
+  const rawUser = parsed.data.user || parsed.data.teacher || {}
+  const isTeacher = Boolean(parsed.data.teacher)
   const user: AdminUser = {
-    id: (rawUser.id as string | number) || 'admin-1',
+    id: (rawUser.id as string | number) || (rawUser._id as string | number) || 'admin-1',
     email: String(rawUser.email || ''),
     name: String(rawUser.name || rawUser.email || 'Admin'),
-    role: String(rawUser.role || 'superadmin'),
+    role: String(rawUser.role || (isTeacher ? 'teacher' : 'superadmin')),
     active: rawUser.active !== undefined ? Boolean(rawUser.active) : true,
     avatar: rawUser.avatar as string | undefined,
     lastLogin: rawUser.lastLogin as string | undefined,
@@ -32,6 +34,11 @@ function normalizeAdminSession(body: unknown): AuthSession {
   }
 
   return { token, user }
+}
+
+export async function loginTeacherByCode(code: string): Promise<AuthSession> {
+  const response = await apiClient.get('/v1/teacher/login-by-code', { params: { code } })
+  return normalizeAdminSession(response.data)
 }
 
 export async function loginAdmin(email: string, password: string): Promise<AuthSession> {

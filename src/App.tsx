@@ -1,9 +1,10 @@
 import { Loader2 } from 'lucide-react'
-import { lazy, Suspense, useEffect } from 'react'
-import { createBrowserRouter, Navigate, RouterProvider } from 'react-router-dom'
+import { lazy, Suspense, useEffect, useState } from 'react'
+import { createBrowserRouter, Navigate, RouterProvider, useLocation } from 'react-router-dom'
 import { AdminShell } from '@/layouts/admin-shell'
 import { useAuthStore } from '@/stores/auth-store'
 import { useThemeStore } from '@/stores/theme-store'
+import { loginTeacherByCode } from '@/services/apis/auth-api'
 
 const LoginPage = lazy(() => import('@/pages/auth/login'))
 const DashboardPage = lazy(() => import('@/pages/app/dashboard'))
@@ -27,17 +28,22 @@ function LoadingScreen() {
 
 function RootRedirect() {
   const session = useAuthStore((state) => state.session)
-  return <Navigate to={session ? '/dashboard' : '/login'} replace />
+  return <Navigate to={session ? session.user.role === 'teacher' ? '/students/history' : '/dashboard' : '/login'} replace />
 }
 
 function PublicOnly({ children }: { children: React.ReactNode }) {
   const session = useAuthStore((state) => state.session)
-  return session ? <Navigate to="/dashboard" replace /> : children
+  return session ? <Navigate to={session.user.role === 'teacher' ? '/students/history' : '/dashboard'} replace /> : children
 }
 
 function ProtectedRoute() {
   const session = useAuthStore((state) => state.session)
-  return session ? <AdminShell /> : <Navigate to="/login" replace />
+  const location = useLocation()
+  if (!session) return <Navigate to="/login" replace />
+  if (session.user.role === 'teacher' && location.pathname !== '/students/history') {
+    return <Navigate to="/students/history" replace />
+  }
+  return <AdminShell />
 }
 
 const router = createBrowserRouter([
@@ -71,13 +77,31 @@ export default function App() {
   const hydrated = useAuthStore((state) => state.hydrated)
   const hydrateAuth = useAuthStore((state) => state.hydrate)
   const hydrateTheme = useThemeStore((state) => state.hydrate)
+  const session = useAuthStore((state) => state.session)
+  const setSession = useAuthStore((state) => state.setSession)
+  const [teacherLoginPending, setTeacherLoginPending] = useState(false)
 
   useEffect(() => {
     hydrateTheme()
     if (!hydrated) hydrateAuth()
   }, [hydrateAuth, hydrateTheme, hydrated])
 
-  if (!hydrated) return <LoadingScreen />
+  useEffect(() => {
+    if (!hydrated || session || teacherLoginPending) return
+    const code = new URLSearchParams(window.location.search).get('code')?.trim().toLowerCase()
+    if (!code || !/^[a-z0-9]{8}$/.test(code)) return
+    setTeacherLoginPending(true)
+    const url = new URL(window.location.href)
+    url.searchParams.delete('code')
+    window.history.replaceState({}, '', `${url.pathname}${url.search}${url.hash}`)
+    loginTeacherByCode(code)
+      .then((teacherSession) => {
+        setSession(teacherSession)
+      })
+      .finally(() => setTeacherLoginPending(false))
+  }, [hydrated, session, setSession, teacherLoginPending])
+
+  if (!hydrated || teacherLoginPending) return <LoadingScreen />
   return (
     <Suspense fallback={<LoadingScreen />}>
       <RouterProvider router={router} />

@@ -3,6 +3,7 @@ import { ApiContractError, apiClient, unwrapPayload } from './api-client'
 
 const teacherSchema = z.object({
   _id: z.coerce.string(),
+  code: z.string().optional().default(''),
   order: z.number().optional().default(9999),
   account: z.string(),
   email: z.string(),
@@ -29,7 +30,7 @@ const teacherSchema = z.object({
 
 export type Teacher = z.infer<typeof teacherSchema>
 export type UpdateTeacherInput = Partial<Omit<Teacher, '_id'>>
-export type CreateTeacherInput = Omit<Teacher, '_id' | 'active' | 'createdAt'> & { password: string }
+export type CreateTeacherInput = Omit<Teacher, '_id' | 'code' | 'active' | 'createdAt'> & { password: string }
 
 export async function getTeachers(): Promise<Teacher[]> {
   const response = await apiClient.get('/v1/teacher')
