@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Eye, Loader2, Pencil, Save, Search } from 'lucide-react'
+import { ChevronDown, ChevronUp, Download, Loader2, Save, Search } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { toast } from 'sonner'
@@ -12,6 +12,7 @@ import age4Csv from '@/data/plan-templates/plan-age-4.csv?raw'
 import age5Csv from '@/data/plan-templates/plan-age-5.csv?raw'
 import age6Csv from '@/data/plan-templates/plan-age-6.csv?raw'
 import { childTypeLabel } from '@/lib/child-pricing'
+import { getMonthlyAttendances } from '@/services/apis/attendance-api'
 import { getChildren } from '@/services/apis/children-api'
 import { createPlan, getPlans, PLAN_CATEGORIES, type PlanDay, updatePlan } from '@/services/apis/plan-api'
 
@@ -90,7 +91,8 @@ export default function StudentPlansPage() {
   const [search, setSearch] = useState('')
   const [days, setDays] = useState<PlanDay[]>([])
   const [isDirty, setIsDirty] = useState(false)
-  const [isViewMode, setIsViewMode] = useState(false)
+  const [editingDate, setEditingDate] = useState<string | null>(null)
+  const [editingItemKey, setEditingItemKey] = useState<string | null>(null)
   const [year, monthNumber] = month.split('-').map(Number)
   const totalDays = new Date(year, monthNumber, 0).getDate()
 
@@ -108,6 +110,11 @@ export default function StudentPlansPage() {
     enabled: Boolean(selectedChildId),
     refetchOnWindowFocus: false,
   })
+  const attendancesQuery = useQuery({
+    queryKey: ['plan-attendances', month, selectedChildId],
+    queryFn: () => getMonthlyAttendances(month, 'ALL'),
+    enabled: Boolean(selectedChildId),
+  })
   const plan = plansQuery.data?.[0]
 
   useEffect(() => {
@@ -121,6 +128,8 @@ export default function StudentPlansPage() {
     }))
     setDays(loadedDays)
     setIsDirty(false)
+    setEditingDate(null)
+    setEditingItemKey(null)
   }, [plansQuery.data, plansQuery.isSuccess, selectedChildId])
 
   const filteredChildren = useMemo(() => {
@@ -135,6 +144,11 @@ export default function StudentPlansPage() {
     return daysByDate.get(date) || { date, items: emptyItems() }
   }), [daysByDate, month, totalDays])
   const populatedDayCount = useMemo(() => monthlyDays.filter((day) => day.items.some((item) => item.content.trim())).length, [monthlyDays])
+  const attendedDates = useMemo(() => new Set(
+    (attendancesQuery.data || [])
+      .filter((attendance) => (typeof attendance.children === 'string' ? attendance.children : attendance.children._id) === selectedChildId)
+      .flatMap((attendance) => attendance.days.filter((day) => !day.absent && day.status === 'present').map((day) => dateKey(day.date))),
+  ), [attendancesQuery.data, selectedChildId])
 
   const saveMutation = useMutation({
     mutationFn: () => plan ? updatePlan(plan._id, days) : createPlan(month, selectedChildId, days),
@@ -174,6 +188,80 @@ export default function StudentPlansPage() {
     const choices = differentContents.length ? differentContents : matchingContents
     updateContent(date, categoryKey, choices[Math.floor(Math.random() * choices.length)])
   }
+  const exportExcel = async () => {
+    if (!selectedChild) return toast.error('Vui lòng chọn trẻ cần xuất kế hoạch')
+    const XLSX = await import('xlsx-js-style')
+    const categoryExcelColors: Record<string, { fill: string; text: string }> = {
+      NHAN_THUC_NGON_NGU: { fill: 'E0F2FE', text: '075985' },
+      NHAN_THUC_TU_DUY_MAU_SAC: { fill: 'F3E8FF', text: '6B21A8' },
+      TUONG_TAC: { fill: 'FEF3C7', text: '92400E' },
+      BAT_CHUOC: { fill: 'FFE4E6', text: '9F1239' },
+      VAN_DONG_TINH: { fill: 'D1FAE5', text: '065F46' },
+      VAN_DONG_THO: { fill: 'FFEDD5', text: '9A3412' },
+    }
+    const border = {
+      top: { style: 'thin', color: { rgb: '94A3B8' } },
+      bottom: { style: 'thin', color: { rgb: '94A3B8' } },
+      left: { style: 'thin', color: { rgb: '94A3B8' } },
+      right: { style: 'thin', color: { rgb: '94A3B8' } },
+    } as const
+    const rows = [
+      [`KẾ HOẠCH THÁNG ${monthNumber}/${year}`],
+      ['Tên trẻ', selectedChild.name],
+      ['Tháng học', `${String(monthNumber).padStart(2, '0')}/${year}`],
+      [],
+      ['Ngày', 'Mục kế hoạch', 'Nội dung'],
+      ...monthlyDays.flatMap((day) => {
+        const dayDate = dateKey(day.date)
+        return PLAN_CATEGORIES.map((category, categoryIndex) => [
+          categoryIndex === 0 ? formatPlanDate(dayDate).label : '',
+          category.title,
+          day.items.find((item) => item.key === category.key)?.content || '',
+        ])
+      }),
+    ]
+    const worksheet = XLSX.utils.aoa_to_sheet(rows)
+    rows.forEach((_, rowIndex) => {
+      for (let columnIndex = 0; columnIndex < 3; columnIndex += 1) {
+        const address = XLSX.utils.encode_cell({ r: rowIndex, c: columnIndex })
+        if (!worksheet[address]) worksheet[address] = { t: 's', v: '' }
+        worksheet[address].s = { border, alignment: { vertical: 'top', wrapText: true } }
+      }
+    })
+    worksheet['!merges'] = [
+      { s: { r: 0, c: 0 }, e: { r: 0, c: 2 } },
+      { s: { r: 1, c: 1 }, e: { r: 1, c: 2 } },
+      { s: { r: 2, c: 1 }, e: { r: 2, c: 2 } },
+      ...monthlyDays.map((_, dayIndex) => ({
+        s: { r: 5 + dayIndex * PLAN_CATEGORIES.length, c: 0 },
+        e: { r: 5 + dayIndex * PLAN_CATEGORIES.length + PLAN_CATEGORIES.length - 1, c: 0 },
+      })),
+    ]
+    worksheet['!cols'] = [{ wch: 15 }, { wch: 32 }, { wch: 90 }]
+    worksheet['!rows'] = rows.map((_, index) => ({ hpt: index === 0 ? 28 : index >= 5 ? 34 : 21 }))
+
+    const titleCell = worksheet.A1
+    titleCell.s = { font: { bold: true, sz: 16, color: { rgb: 'FFFFFF' } }, fill: { patternType: 'solid', fgColor: { rgb: '047857' } }, alignment: { horizontal: 'center', vertical: 'center' }, border }
+    ;['A2', 'A3'].forEach((address) => { worksheet[address].s = { font: { bold: true, color: { rgb: '065F46' } }, fill: { patternType: 'solid', fgColor: { rgb: 'D1FAE5' } }, alignment: { vertical: 'center' }, border } })
+    ;['B2', 'B3', 'C2', 'C3'].forEach((address) => { worksheet[address].s = { font: { bold: true }, fill: { patternType: 'solid', fgColor: { rgb: 'FFFFFF' } }, alignment: { vertical: 'center' }, border } })
+    ;['A5', 'B5', 'C5'].forEach((address) => { worksheet[address].s = { font: { bold: true, color: { rgb: 'FFFFFF' } }, fill: { patternType: 'solid', fgColor: { rgb: '059669' } }, alignment: { horizontal: 'center', vertical: 'center' }, border } })
+    monthlyDays.forEach((day, dayIndex) => {
+      const startRow = 6 + dayIndex * PLAN_CATEGORIES.length
+      const { isSaturday, isSunday } = formatPlanDate(dateKey(day.date))
+      const dateCell = worksheet[`A${startRow}`]
+      dateCell.s = { font: { bold: true, color: { rgb: isSaturday || isSunday ? '92400E' : '334155' } }, fill: { patternType: 'solid', fgColor: { rgb: isSaturday || isSunday ? 'FDE68A' : 'FEF3C7' } }, alignment: { horizontal: 'center', vertical: 'center', wrapText: true }, border }
+      PLAN_CATEGORIES.forEach((category, categoryIndex) => {
+        const rowNumber = startRow + categoryIndex
+        const colors = categoryExcelColors[category.key]
+        worksheet[`B${rowNumber}`].s = { font: { bold: true, color: { rgb: colors.text } }, fill: { patternType: 'solid', fgColor: { rgb: colors.fill } }, alignment: { vertical: 'center', wrapText: true }, border }
+        worksheet[`C${rowNumber}`].s = { font: { color: { rgb: '1E293B' } }, fill: { patternType: 'solid', fgColor: { rgb: 'FFFFFF' } }, alignment: { vertical: 'top', wrapText: true }, border }
+      })
+    })
+    const workbook = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(workbook, worksheet, `Kế hoạch ${monthNumber}-${year}`)
+    const safeChildName = selectedChild.name.trim().replace(/[\\/:*?"<>|]+/g, '-').replace(/\s+/g, '-').slice(0, 60) || 'tre'
+    XLSX.writeFile(workbook, `Ke-hoach-${safeChildName}-${month}.xlsx`, { compression: true })
+  }
   const changeMonth = (nextMonth: string) => {
     if (isDirty && !window.confirm('Kế hoạch chưa lưu sẽ bị mất. Bạn vẫn muốn đổi tháng?')) return
     setMonth(nextMonth)
@@ -203,34 +291,47 @@ export default function StudentPlansPage() {
           {selectedChildId && plansQuery.isError && <div className="rounded-xl bg-red-50 p-4 text-sm text-red-700">Không thể tải kế hoạch của trẻ.</div>}
           {selectedChildId && plansQuery.isSuccess && <div className="grid gap-5">
             <section className="grid gap-3 rounded-xl border border-border bg-surface-muted/40 p-3 sm:p-4">
-              <div className="flex flex-wrap items-center gap-2"><div className="mr-auto"><strong className="block">Toàn bộ kế hoạch Tháng {monthNumber}/{year}</strong><span className="text-xs text-muted">Đủ {totalDays} ngày · {populatedDayCount} ngày có nội dung · {selectedChild?.name}</span></div><Button type="button" size="sm" variant={isViewMode ? 'primary' : 'secondary'} onClick={() => setIsViewMode((current) => !current)}>{isViewMode ? <Pencil size={14} /> : <Eye size={14} />}{isViewMode ? 'Chỉnh sửa' : 'Xem'}</Button><Button type="button" size="sm" disabled={!isDirty || saveMutation.isPending} onClick={() => saveMutation.mutate()}>{saveMutation.isPending ? <Loader2 size={14} className="spin" /> : <Save size={14} />}Lưu kế hoạch</Button></div>
-              <Table className="min-w-[36rem]" containerClassName="max-h-[calc(100vh-16rem)] overflow-auto rounded-xl border border-border">
+              <div className="flex flex-wrap items-center gap-2"><div className="mr-auto"><strong className="block">Toàn bộ kế hoạch Tháng {monthNumber}/{year}</strong><span className="text-xs text-muted">Đủ {totalDays} ngày · {populatedDayCount} ngày có nội dung · {selectedChild?.name}</span></div><Button type="button" size="sm" variant="secondary" onClick={exportExcel}><Download size={14} />Xuất Excel</Button><Button type="button" size="sm" disabled={!isDirty || saveMutation.isPending} onClick={() => saveMutation.mutate()}>{saveMutation.isPending ? <Loader2 size={14} className="spin" /> : <Save size={14} />}Lưu kế hoạch</Button></div>
+              <Table className="min-w-0 table-fixed sm:min-w-[30rem]" containerClassName="max-h-[calc(100vh-16rem)] overflow-x-hidden overflow-y-auto rounded-xl border border-border sm:overflow-x-auto">
                 <TableHeader className="sticky top-0 z-20 bg-surface-muted shadow-sm">
                   <TableRow>
-                    <TableHead className="w-28 min-w-24 whitespace-nowrap bg-surface-muted">Ngày</TableHead>
-                    <TableHead className="bg-surface-muted">Nội dung</TableHead>
+                    <TableHead className="bg-surface-muted">
+                      <span className="flex items-center gap-1.5 whitespace-nowrap">Kế hoạch của <strong className="text-primary">{selectedChild?.name}</strong></span>
+                    </TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody className="divide-y-0">
                   {monthlyDays.map((day) => {
                     const dayDate = dateKey(day.date)
                     const { label, isSaturday, isSunday } = formatPlanDate(dayDate)
+                    const hasContent = day.items.some((item) => item.content.trim())
+                    const isEditing = editingDate === dayDate
+                    const hasAttendance = attendedDates.has(dayDate)
                     return <TableRow key={dayDate} className="align-top border-b-2 border-primary/35 last:border-b-0">
-                      <TableCell className={`align-top ${isSaturday || isSunday ? 'bg-amber-200/80 text-amber-900 dark:bg-amber-500/30 dark:text-amber-200' : 'bg-amber-50 dark:bg-amber-500/10'}`}>
-                        <div className="grid gap-2">
-                          <strong className="whitespace-nowrap leading-snug">{label}</strong>
-                        </div>
-                      </TableCell>
-                      <TableCell className="align-top">
-                        {isViewMode
-                          ? <div className="grid gap-2">{day.items.map((item) => <div key={item.key} className="overflow-hidden rounded-lg border border-slate-200 bg-white"><strong className={`block px-2.5 py-1.5 text-sm ${CATEGORY_COLORS[item.key]}`}>{item.title}</strong><p className="m-0 whitespace-pre-wrap break-words bg-white px-2.5 py-2 text-sm font-normal leading-relaxed text-slate-800">{item.content || '—'}</p></div>)}</div>
-                          : <div className="grid gap-3">{day.items.map((item) => {
+                      <TableCell className="align-top p-0">
+                        <button type="button" aria-expanded={isEditing} onClick={() => {
+                          setEditingDate(isEditing ? null : dayDate)
+                          setEditingItemKey(null)
+                        }} className={`flex w-full cursor-pointer items-center gap-2 border-0 px-3 py-2 text-left transition hover:brightness-95 ${hasContent || isEditing ? 'border-b border-border' : ''} ${isSaturday || isSunday ? 'bg-amber-200/80 text-amber-900 dark:bg-amber-500/30 dark:text-amber-200' : 'bg-amber-50 text-text-main dark:bg-amber-500/10'}`}>
+                          <strong className="whitespace-nowrap text-sm leading-snug">{label}</strong>
+                          {hasAttendance && <span className="whitespace-nowrap rounded-md border border-emerald-500 bg-white px-2 py-0.5 text-[11px] font-bold text-emerald-700">Có điểm danh</span>}
+                          {!hasContent && !isEditing && <span className="min-w-0 flex-1 truncate text-xs font-normal text-muted">Chưa có kế hoạch</span>}
+                          {isEditing ? <ChevronUp size={16} className="ml-auto shrink-0" /> : <ChevronDown size={16} className="ml-auto shrink-0" />}
+                        </button>
+                        {(hasContent || isEditing) && <div className="p-2 sm:p-3">
+                          <div className="grid gap-1.5">{day.items.map((item) => {
                             const inputId = `plan-${dayDate}-${item.key}`
-                            return <div key={item.key} className={`grid min-w-0 gap-1.5 rounded-lg p-2.5 text-sm font-semibold ${CATEGORY_COLORS[item.key]}`}>
-                              <div className="flex min-w-0 items-center justify-between gap-2"><label htmlFor={inputId} className="min-w-0">{item.title}</label><Button type="button" size="sm" variant="secondary" className="shrink-0" onClick={() => fillRandomExample(dayDate, item.key)}>Điền mẫu</Button></div>
-                              <textarea id={inputId} value={item.content} onChange={(event) => updateContent(dayDate, item.key, event.target.value)} rows={2} placeholder="Nhập nội dung hoạt động..." className="min-h-16 w-full resize-y rounded-lg border border-border bg-white/80 p-2.5 text-sm font-normal leading-relaxed text-text-main outline-none focus:border-primary dark:bg-app-background" />
+                            const isEditingItem = isEditing && editingItemKey === item.key
+                            if (!isEditingItem) return <button key={item.key} type="button" onClick={() => {
+                              setEditingDate(dayDate)
+                              setEditingItemKey(item.key)
+                            }} className="grid min-h-10 grid-cols-[minmax(5.5rem,28%)_1fr] overflow-hidden rounded-md border border-slate-200 bg-white text-left transition hover:border-primary hover:shadow-sm sm:grid-cols-[minmax(6.5rem,28%)_1fr]"><strong className={`flex min-w-0 items-center break-words px-1.5 py-1 text-[10px] leading-tight sm:text-[11px] ${CATEGORY_COLORS[item.key]}`}>{item.title}</strong><p className="m-0 line-clamp-3 min-w-0 self-center whitespace-pre-wrap break-words bg-white px-2 py-1.5 text-xs font-normal leading-snug text-slate-800">{item.content || '—'}</p></button>
+                            return <div key={item.key} className={`grid min-w-0 gap-1.5 rounded-md border border-primary p-2 text-sm font-semibold shadow-sm ${CATEGORY_COLORS[item.key]}`}>
+                              <div className="flex min-w-0 items-center justify-between gap-2"><label htmlFor={inputId} className="min-w-0 text-xs">{item.title}</label><Button type="button" size="sm" variant="secondary" className="h-7 shrink-0 px-2 text-xs" onClick={() => fillRandomExample(dayDate, item.key)}>Điền mẫu</Button></div>
+                              <textarea id={inputId} autoFocus value={item.content} onChange={(event) => updateContent(dayDate, item.key, event.target.value)} rows={3} placeholder="Nhập nội dung hoạt động..." className="min-h-20 w-full resize-y rounded-lg border border-border bg-white/80 p-2.5 text-sm font-normal leading-relaxed text-text-main outline-none focus:border-primary dark:bg-app-background" />
                             </div>
-                          })}</div>}
+                          })}</div>
+                        </div>}
                       </TableCell>
                     </TableRow>
                   })}

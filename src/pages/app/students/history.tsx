@@ -33,8 +33,8 @@ const LESSON_TYPES = [
   ['HỌC', 'Học'], ['VẼ', 'Vẽ'], ['NGOẠI NGỮ', 'Ngoại ngữ'], ['VẬN ĐỘNG', 'Vận động'],
 ] as const
 const DURATION_PRESETS = [
-  { minutes: 60, label: '1h' }, { minutes: 70, label: '1h10' }, { minutes: 75, label: '1h15' },
-  { minutes: 90, label: '1h30' }, { minutes: 120, label: '2h' }, { minutes: 150, label: '2h30' }, { minutes: 180, label: '3h' },
+  { minutes: 60, label: '1h' }, { minutes: 75, label: '1h15' }, { minutes: 90, label: '1h30' },
+  { minutes: 105, label: '1h45' }, { minutes: 120, label: '2h' },
 ]
 const isFullDayType = (type: AttendanceType) => type === 'CA_NGAY' || type === 'SHADOW'
 const needsTeacher = (type: AttendanceType) => type !== 'CA_NGAY'
@@ -207,6 +207,7 @@ export default function StudentHistoryPage() {
   const [editingDay, setEditingDay] = useState<{ attendanceId: string; childId: string; attendanceType: AttendanceType; date: string; day: MonthlyAttendance['days'][number]; defaultTeacherId?: string | null } | null>(null)
   const [editSpendTime, setEditSpendTime] = useState('1')
   const [customSpendTime, setCustomSpendTime] = useState(false)
+  const customSpendTimeRef = useRef<HTMLSpanElement>(null)
   const [editTeacherId, setEditTeacherId] = useState('')
   const [editAbsent, setEditAbsent] = useState(false)
   const [editRefund, setEditRefund] = useState('0')
@@ -224,7 +225,7 @@ export default function StudentHistoryPage() {
   const [teacherHourlySalary, setTeacherHourlySalary] = useState('130000')
   const [selectedTeacherId, setSelectedTeacherId] = useState('')
   const [selectedAttendanceTeachers, setSelectedAttendanceTeachers] = useState<Record<string, string>>({})
-  const [attendanceConfirmation, setAttendanceConfirmation] = useState<{ attendanceId: string; childName: string } | null>(null)
+  const [attendanceConfirmation, setAttendanceConfirmation] = useState<{ attendanceId: string; childName: string; top: number; left: number } | null>(null)
   const attendanceConfirmResolver = useRef<((confirmed: boolean) => void) | null>(null)
   const receiptRef = useRef<HTMLDivElement>(null)
   const [editingIds, setEditingIds] = useState<Set<string>>(new Set())
@@ -630,9 +631,13 @@ export default function StudentHistoryPage() {
     setEditLessonType(item.lessonType || (item.notes === 'Vẽ' ? 'VẼ' : 'HỌC'))
     setCustomLessonType(!LESSON_TYPES.some(([type]) => type === (item.lessonType || (item.notes === 'Vẽ' ? 'VẼ' : 'HỌC'))))
   }
-  const requestAttendanceConfirmation = (attendanceId: string, childNameValue: string) => {
+  const requestAttendanceConfirmation = (attendanceId: string, childNameValue: string, anchor?: HTMLElement) => {
     if (attendanceConfirmResolver.current) return Promise.resolve(false)
-    setAttendanceConfirmation({ attendanceId, childName: childNameValue })
+    const rect = anchor?.getBoundingClientRect()
+    const popupWidth = Math.min(272, window.innerWidth - 16)
+    const left = rect ? Math.min(Math.max(rect.left + rect.width / 2 - popupWidth / 2, 8), window.innerWidth - popupWidth - 8) : 8
+    const top = rect ? Math.min(rect.bottom + 6, window.innerHeight - 150) : 8
+    setAttendanceConfirmation({ attendanceId, childName: childNameValue, top, left })
     return new Promise<boolean>((resolve) => { attendanceConfirmResolver.current = resolve })
   }
   const closeAttendanceConfirmation = (confirmed: boolean) => {
@@ -641,9 +646,9 @@ export default function StudentHistoryPage() {
     setAttendanceConfirmation(null)
     resolve?.(confirmed)
   }
-  const confirmEditingFromCell = async (attendance: MonthlyAttendance, childNameValue: string) => {
+  const confirmEditingFromCell = async (attendance: MonthlyAttendance, childNameValue: string, anchor?: HTMLElement) => {
     if (editingIds.has(attendance._id)) return true
-    if (!await requestAttendanceConfirmation(attendance._id, childNameValue)) return false
+    if (!await requestAttendanceConfirmation(attendance._id, childNameValue, anchor)) return false
     try {
       if (attendance.isCompleted) {
         const updated = await setAttendanceCompleted(attendance._id, false)
@@ -873,9 +878,9 @@ export default function StudentHistoryPage() {
                       const latestSnapshot = attendance.days.reduce((latest, item) => !latest || item.date > latest.date ? item : latest, attendance.days[0])
                       const pricingConfig = configForAttendance(child as Child | null, attendance.type, latestSnapshot?.lessonType)
                       return <section key={attendance._id} className="relative grid gap-2 border-b border-border pb-3 last:border-b-0 last:pb-0">
-                        {attendanceConfirmation?.attendanceId === attendance._id && <div className="absolute right-2 top-2 z-30 grid w-[calc(100%-1rem)] max-w-sm gap-3 rounded-xl border border-blue-300 bg-surface p-3 text-sm shadow-xl dark:border-blue-500/50">
-                          <div><strong className="block text-text-main">Xác nhận điểm danh</strong><span className="mt-1 block text-muted">Bạn muốn điểm danh bé <strong className="text-text-main">“{attendanceConfirmation.childName}”</strong> không?</span></div>
-                          <div className="grid grid-cols-2 gap-2"><Button type="button" size="sm" variant="secondary" onClick={() => closeAttendanceConfirmation(false)}>Hủy</Button><Button type="button" size="sm" onClick={() => closeAttendanceConfirmation(true)}><CheckCircle2 size={14} />Xác nhận</Button></div>
+                        {attendanceConfirmation?.attendanceId === attendance._id && <div style={{ top: attendanceConfirmation.top, left: attendanceConfirmation.left }} className="fixed z-50 grid w-[calc(100vw-1rem)] max-w-[17rem] gap-2 rounded-lg border border-blue-300 bg-surface p-2 text-xs shadow-xl dark:border-blue-500/50">
+                          <span className="text-muted">Điểm danh bé <strong className="text-text-main">“{attendanceConfirmation.childName}”</strong>?</span>
+                          <div className="flex justify-end gap-1.5"><Button type="button" size="sm" variant="secondary" className="h-7 px-2 text-xs" onClick={() => closeAttendanceConfirmation(false)}>Hủy</Button><Button type="button" size="sm" className="h-7 px-2 text-xs" onClick={() => closeAttendanceConfirmation(true)}><CheckCircle2 size={12} />Xác nhận</Button></div>
                         </div>}
                         {!needsTeacher(attendance.type) && <div className="flex items-center gap-2 rounded-lg bg-blue-50/70 px-2.5 py-2 text-[11px] font-bold dark:bg-blue-500/10 sm:hidden">
                           <span className="text-blue-700 dark:text-blue-300">{attendanceTypeLabel(attendance.type)}</span>
@@ -901,8 +906,8 @@ export default function StudentHistoryPage() {
                             const item = items.find((session) => session.teacherId === selectedAttendanceTeachers[attendance._id]) || items[0]
                             const hasAbsent = items.some((session) => session.absent)
                             const hasPresent = items.some((session) => !session.absent)
-                            return <button key={date} type="button" disabled={dayMutation.isPending} onClick={async () => {
-                              if (!await confirmEditingFromCell(attendance, child?.name || `Trẻ #${childId}`)) return
+                            return <button key={date} type="button" disabled={dayMutation.isPending} onClick={async (event) => {
+                              if (!await confirmEditingFromCell(attendance, child?.name || `Trẻ #${childId}`, event.currentTarget)) return
                               const scheduledIds = scheduledTeacherIds(pricingConfig, date)
                               const fallbackTeacherId = pricingConfig?.teacherId || pricingConfig?.schedules.find((schedule) => schedule.teacherId)?.teacherId || ''
                               const teacherIds = filteredTeacherId ? [filteredTeacherId] : scheduledIds.length ? scheduledIds : fallbackTeacherId ? [fallbackTeacherId] : []
@@ -931,7 +936,7 @@ export default function StudentHistoryPage() {
       <Modal open={Boolean(attendanceConfirmation) && viewMode === 'table'} onClose={() => closeAttendanceConfirmation(false)} title="Xác nhận điểm danh" description={attendanceConfirmation?.childName} className="max-w-md">
         <div className="grid gap-5">
           <div className="rounded-xl border border-blue-200 bg-blue-50 p-4 text-sm text-blue-900 dark:border-blue-500/30 dark:bg-blue-500/10 dark:text-blue-100">
-            Bạn muốn điểm danh bé <strong>“{attendanceConfirmation?.childName}”</strong> không?
+            Bé <strong>“{attendanceConfirmation?.childName}”</strong>
           </div>
           <div className="grid grid-cols-2 gap-2 border-t border-border pt-4 sm:flex sm:justify-end">
             <Button type="button" variant="secondary" className="w-full sm:w-auto" onClick={() => closeAttendanceConfirmation(false)}>Hủy</Button>
@@ -1024,14 +1029,16 @@ export default function StudentHistoryPage() {
         onClose={() => !dayMutation.isPending && setEditingDay(null)}
         title="Chỉnh sửa buổi học"
         description={editingDay ? new Date(`${editingDay.date}T00:00:00`).toLocaleDateString('vi-VN') : undefined}
-        className="max-h-[92vh] w-[calc(100vw-1rem)] max-w-2xl overflow-y-auto"
+        className="max-h-[96dvh] w-[calc(100vw-0.5rem)] max-w-2xl overflow-y-auto rounded-xl p-3 sm:max-h-[92vh] sm:w-[calc(100vw-1rem)] sm:rounded-2xl sm:p-6"
       >
         <form onSubmit={(event) => {
           event.preventDefault()
           if (!editingDay) return
           const spendTime = Number(editSpendTime.replace(',', '.'))
+          const spendMinutes = Math.round(spendTime * 60)
           const refund = Number(editRefund) || 0
           if (!isFullDayType(editingDay.attendanceType) && (!Number.isFinite(spendTime) || spendTime <= 0)) return toast.error('Số giờ học không hợp lệ')
+          if (!isFullDayType(editingDay.attendanceType) && spendMinutes > 400) return toast.error('Thời lượng tối đa là 400 phút')
           if (refund < 0) return toast.error('Số tiền hoàn không hợp lệ')
           dayMutation.mutate({
             attendanceId: editingDay.attendanceId,
@@ -1046,32 +1053,38 @@ export default function StudentHistoryPage() {
             notes: editNotes.trim(),
             lessonType: editLessonType.trim() || 'HỌC',
           })
-        }} className="grid gap-5">
-          <section className="grid gap-2 rounded-xl border border-emerald-200 bg-emerald-50/60 p-3 dark:border-emerald-500/30 dark:bg-emerald-500/10">
+        }} className="grid gap-3 sm:gap-5">
+          <section className="grid gap-2 rounded-lg border border-emerald-200 bg-emerald-50/60 p-2 sm:rounded-xl sm:p-3 dark:border-emerald-500/30 dark:bg-emerald-500/10">
             <div className="flex items-center justify-between gap-2"><strong className="text-sm text-emerald-800 dark:text-emerald-200">Kế hoạch ngày này</strong><span className="flex items-center gap-2">{editingDayPlanQuery.isFetching && <Loader2 size={14} className="spin text-emerald-600" />}<Button type="button" size="sm" variant="secondary" className="h-7 px-2 text-[10px]" onClick={() => setIsDayPlanCompact((current) => !current)}>{isDayPlanCompact ? 'Chỉnh sửa' : 'Xem rút gọn'}</Button></span></div>
             {editingDayPlanQuery.isError && <span className="text-xs text-red-600">Không thể tải kế hoạch.</span>}
-            {editingDayPlanQuery.isSuccess && isDayPlanCompact && <div className="grid max-h-52 gap-2 overflow-y-auto pr-1">{editingDayPlanItems.some((item) => item.content.trim()) ? editingDayPlanItems.filter((item) => item.content.trim()).map((item) => <div key={item.key} className="rounded-lg border border-emerald-200 bg-white p-2.5 dark:border-emerald-500/20 dark:bg-surface"><strong className="block text-xs text-emerald-800 dark:text-emerald-200">{item.title}</strong><p className="m-0 mt-1 whitespace-pre-wrap text-sm leading-relaxed text-text-main">{item.content}</p></div>) : <span className="text-xs text-emerald-700/70 dark:text-emerald-200/70">Chưa có nội dung kế hoạch cho ngày này.</span>}</div>}
-            {editingDayPlanQuery.isSuccess && !isDayPlanCompact && <div className="grid max-h-72 gap-2 overflow-y-auto pr-1">{editingDayPlanItems.map((item, itemIndex) => <label key={item.key} className="grid gap-1 rounded-lg border border-emerald-200 bg-white p-2.5 text-xs font-semibold text-emerald-800 dark:border-emerald-500/20 dark:bg-surface dark:text-emerald-200"><span className="flex items-center justify-between gap-2"><span>{item.title}</span><Button type="button" size="sm" variant="secondary" className="h-7 shrink-0 px-2 text-[10px]" onClick={() => fillDayPlanExample(itemIndex)}>Điền mẫu</Button></span><textarea rows={2} value={item.content} onChange={(event) => setEditingDayPlanItems((current) => current.map((currentItem, index) => index === itemIndex ? { ...currentItem, content: event.target.value } : currentItem))} placeholder="Nhập nội dung kế hoạch..." className="resize-y rounded-lg border border-border bg-app-background px-2.5 py-2 text-sm font-normal text-text-main outline-none focus:border-emerald-500" /></label>)}</div>}
+            {editingDayPlanQuery.isSuccess && isDayPlanCompact && <div className="grid max-h-48 gap-1.5 overflow-y-auto pr-1 sm:max-h-52 sm:gap-2">{editingDayPlanItems.some((item) => item.content.trim()) ? editingDayPlanItems.filter((item) => item.content.trim()).map((item) => <div key={item.key} className="rounded-md border border-emerald-200 bg-white p-2 sm:rounded-lg sm:p-2.5 dark:border-emerald-500/20 dark:bg-surface"><strong className="block text-[11px] text-emerald-800 sm:text-xs dark:text-emerald-200">{item.title}</strong><p className="m-0 mt-0.5 whitespace-pre-wrap text-xs leading-snug text-text-main sm:mt-1 sm:text-sm sm:leading-relaxed">{item.content}</p></div>) : <span className="text-xs text-emerald-700/70 dark:text-emerald-200/70">Chưa có nội dung kế hoạch cho ngày này.</span>}</div>}
+            {editingDayPlanQuery.isSuccess && !isDayPlanCompact && <div className="grid max-h-72 gap-2 overflow-y-auto pr-1">{editingDayPlanItems.map((item, itemIndex) => <label key={item.key} className="grid gap-1 rounded-lg border border-emerald-200 bg-white p-2.5 text-xs font-semibold text-emerald-800 dark:border-emerald-500/20 dark:bg-surface dark:text-emerald-200"><span className="flex items-center justify-between gap-2"><span>{item.title}</span><Button type="button" size="sm" variant="secondary" className="h-7 shrink-0 px-2 text-[10px]" onClick={() => fillDayPlanExample(itemIndex)}>Điền mẫu</Button></span><textarea rows={4} value={item.content} onChange={(event) => setEditingDayPlanItems((current) => current.map((currentItem, index) => index === itemIndex ? { ...currentItem, content: event.target.value } : currentItem))} placeholder="Nhập nội dung kế hoạch..." className="resize-y rounded-lg border border-border bg-app-background px-2.5 py-2 text-sm font-normal text-text-main outline-none focus:border-emerald-500" /></label>)}</div>}
             {!isDayPlanCompact && <div className="flex justify-end"><Button type="button" size="sm" disabled={!editingDayPlanQuery.isSuccess || updateDayPlanMutation.isPending} onClick={() => updateDayPlanMutation.mutate()}>{updateDayPlanMutation.isPending && <Loader2 size={14} className="spin" />}Cập nhật kế hoạch</Button></div>}
           </section>
           {editingDay && !isFullDayType(editingDay.attendanceType) && <label className="grid gap-2 text-sm font-semibold">
             Loại buổi học
             <span className="flex flex-wrap gap-2">
-              {LESSON_TYPES.map(([lessonType, label]) => <button key={lessonType} type="button" onClick={() => { setEditLessonType(lessonType); setCustomLessonType(false) }} className={`h-10 rounded-xl border px-4 text-sm font-bold transition ${!customLessonType && editLessonType === lessonType ? 'border-primary bg-primary text-white' : 'border-border bg-surface text-text-main hover:border-primary/50'}`}>{label}</button>)}
-              <button type="button" onClick={() => { setCustomLessonType(true); if (LESSON_TYPES.some(([type]) => type === editLessonType)) setEditLessonType('') }} className={`h-10 rounded-xl border px-4 text-sm font-bold transition ${customLessonType ? 'border-primary bg-primary text-white' : 'border-border bg-surface text-text-main hover:border-primary/50'}`}>Khác</button>
+              {LESSON_TYPES.map(([lessonType, label]) => <button key={lessonType} type="button" onClick={() => { setEditLessonType(lessonType); setCustomLessonType(false) }} className={`h-8 rounded-lg border px-2.5 text-xs font-bold transition sm:h-10 sm:rounded-xl sm:px-4 sm:text-sm ${!customLessonType && editLessonType === lessonType ? 'border-primary bg-primary text-white' : 'border-border bg-surface text-text-main hover:border-primary/50'}`}>{label}</button>)}
+              <button type="button" onClick={() => { setCustomLessonType(true); if (LESSON_TYPES.some(([type]) => type === editLessonType)) setEditLessonType('') }} className={`h-8 rounded-lg border px-2.5 text-xs font-bold transition sm:h-10 sm:rounded-xl sm:px-4 sm:text-sm ${customLessonType ? 'border-primary bg-primary text-white' : 'border-border bg-surface text-text-main hover:border-primary/50'}`}>Khác</button>
             </span>
             {customLessonType && <input value={editLessonType} onChange={(event) => setEditLessonType(event.target.value.toLocaleUpperCase('vi'))} placeholder="Nhập loại buổi học" className="h-10 rounded-xl border border-border bg-app-background px-3 font-normal outline-none focus:border-primary" />}
           </label>}
           {editingDay && !isFullDayType(editingDay.attendanceType) && <label className="grid gap-2 text-sm font-semibold">
             Thời lượng
             <span className="flex flex-wrap gap-2">
-              {DURATION_PRESETS.map((preset) => <button key={preset.minutes} type="button" onClick={() => { setEditSpendTime(String(preset.minutes / 60)); setCustomSpendTime(false) }} className={`h-10 rounded-xl border px-3 text-sm font-bold transition ${!customSpendTime && durationMinutes(editSpendTime) === preset.minutes ? 'border-primary bg-primary text-white' : 'border-border bg-surface text-text-main hover:border-primary/50'}`}>{preset.label}</button>)}
-              <button type="button" onClick={() => setCustomSpendTime(true)} className={`h-10 rounded-xl border px-4 text-sm font-bold transition ${customSpendTime ? 'border-primary bg-primary text-white' : 'border-border bg-surface text-text-main hover:border-primary/50'}`}>Tùy chỉnh</button>
+              {DURATION_PRESETS.map((preset) => <button key={preset.minutes} type="button" onClick={() => { setEditSpendTime(String(preset.minutes / 60)); setCustomSpendTime(false) }} className={`h-8 rounded-lg border px-2.5 text-xs font-bold transition sm:h-10 sm:rounded-xl sm:px-3 sm:text-sm ${!customSpendTime && durationMinutes(editSpendTime) === preset.minutes ? 'border-primary bg-primary text-white' : 'border-border bg-surface text-text-main hover:border-primary/50'}`}>{preset.label}</button>)}
+              <button type="button" onClick={() => {
+                setCustomSpendTime(true)
+                window.requestAnimationFrame(() => customSpendTimeRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' }))
+              }} className={`h-8 rounded-lg border px-2.5 text-xs font-bold transition sm:h-10 sm:rounded-xl sm:px-4 sm:text-sm ${customSpendTime ? 'border-primary bg-primary text-white' : 'border-border bg-surface text-text-main hover:border-primary/50'}`}>Tùy chỉnh</button>
             </span>
-            {customSpendTime && <span className="grid gap-1.5 rounded-xl border border-blue-200 bg-blue-50/60 p-3 dark:border-blue-500/30 dark:bg-blue-500/10"><span className="text-xs text-muted">Tổng số phút</span><input type="number" min="1" step="1" value={durationMinutes(editSpendTime) || ''} onChange={(event) => setEditSpendTime(event.target.value ? String(Number(event.target.value) / 60) : '')} placeholder="Ví dụ: 75" className="h-10 rounded-xl border border-border bg-surface px-3 font-normal outline-none focus:border-primary" /></span>}
+            {customSpendTime && <span ref={customSpendTimeRef} className="grid gap-1.5 rounded-lg border border-blue-300 bg-blue-50 p-2 dark:border-blue-500/40 dark:bg-blue-500/10"><span className="text-xs font-semibold text-blue-800 dark:text-blue-200">Tổng số phút (tối đa 400)</span><input type="number" min="1" max="400" step="1" autoFocus value={durationMinutes(editSpendTime) || ''} onChange={(event) => {
+              const minutes = Math.min(Number(event.target.value) || 0, 400)
+              setEditSpendTime(event.target.value ? String(minutes / 60) : '')
+            }} placeholder="Ví dụ: 75" className="h-10 rounded-lg border border-blue-300 bg-surface px-3 font-normal outline-none focus:border-primary focus:ring-2 focus:ring-primary/15" /></span>}
             <span className="text-xs font-normal text-muted">Đang chọn: <strong className="text-primary">{formatDuration(editSpendTime)}</strong></span>
           </label>}
-          {editingDay && needsTeacher(editingDay.attendanceType) && <label className="grid gap-2 text-sm font-semibold">
+          {!isTeacherSession && editingDay && needsTeacher(editingDay.attendanceType) && <label className="grid gap-2 text-sm font-semibold">
             Giáo viên
             <select value={editTeacherId} onChange={(event) => setEditTeacherId(event.target.value)} className="h-10 rounded-xl border border-border bg-app-background px-3 font-normal outline-none focus:border-primary">
               <option value="">Chọn giáo viên</option>
@@ -1079,7 +1092,7 @@ export default function StudentHistoryPage() {
             </select>
             <span className={`rounded-lg border-l-4 px-3 py-2 font-normal ${editTeacherName ? 'border-blue-500 bg-blue-50 text-blue-800 dark:bg-blue-500/10 dark:text-blue-200' : 'border-slate-300 bg-surface-muted text-muted'}`}>Đang chọn: <strong>{editTeacherName || 'Chưa chọn giáo viên'}</strong></span>
           </label>}
-          <label className="flex items-center gap-3 rounded-xl border border-red-300 bg-red-50 p-3 text-sm font-semibold text-red-700 dark:border-red-500/50 dark:bg-red-500/15 dark:text-red-300">
+          <label className="flex items-center gap-2 rounded-lg border border-red-300 bg-red-50 p-2 text-xs font-semibold text-red-700 sm:gap-3 sm:rounded-xl sm:p-3 sm:text-sm dark:border-red-500/50 dark:bg-red-500/15 dark:text-red-300">
             <input type="checkbox" checked={editAbsent} onChange={(event) => setEditAbsent(event.target.checked)} className="h-4 w-4 accent-primary" />
             Bé nghỉ buổi này
           </label>
@@ -1089,15 +1102,15 @@ export default function StudentHistoryPage() {
           </label>}
           <label className="grid gap-2 text-sm font-semibold">
             Ghi chú
-            <textarea value={editNotes} onChange={(event) => setEditNotes(event.target.value)} rows={3} placeholder="Nhập ghi chú cho ngày này" className="rounded-xl border border-border bg-app-background px-3 py-2 font-normal outline-none focus:border-primary" />
+            <textarea value={editNotes} onChange={(event) => setEditNotes(event.target.value)} rows={2} placeholder="Nhập ghi chú cho ngày này" className="rounded-lg border border-border bg-app-background px-2.5 py-2 font-normal outline-none focus:border-primary sm:rounded-xl sm:px-3" />
           </label>
-          <div className="flex justify-end gap-2 border-t border-border pt-4">
-            <Button type="button" variant="danger" className="mr-auto" disabled={dayMutation.isPending} onClick={() => {
+          <div className="grid grid-cols-2 gap-2 border-t border-border pt-3 sm:flex sm:justify-end sm:pt-4">
+            <Button type="button" variant="danger" className="col-span-2 h-9 w-full sm:col-span-1 sm:mr-auto sm:h-10 sm:w-auto" disabled={dayMutation.isPending} onClick={() => {
               if (!editingDay) return
               dayMutation.mutate({ attendanceId: editingDay.attendanceId, childId: editingDay.childId, date: editingDay.date, attendanceType: editingDay.attendanceType, attended: true })
             }}><Trash2 size={16} />Xóa buổi học</Button>
-            <Button type="button" variant="secondary" onClick={() => setEditingDay(null)} disabled={dayMutation.isPending}>Hủy</Button>
-            <Button type="submit" disabled={dayMutation.isPending}>{dayMutation.isPending && <Loader2 size={16} className="spin" />}Lưu thay đổi</Button>
+            <Button type="button" variant="secondary" className="h-9 sm:h-10" onClick={() => setEditingDay(null)} disabled={dayMutation.isPending}>Hủy</Button>
+            <Button type="submit" className="h-9 sm:h-10" disabled={dayMutation.isPending}>{dayMutation.isPending && <Loader2 size={16} className="spin" />}Lưu thay đổi</Button>
           </div>
         </form>
       </Modal>
