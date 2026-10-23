@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { AlertCircle, CalendarCheck, CheckCircle2, Eye, Loader2, Pencil, Plus, RefreshCw, Search, Users } from 'lucide-react'
+import { AlertCircle, CalendarCheck, CheckCircle2, Eye, GraduationCap, Loader2, Pencil, Phone, Plus, ReceiptText, RefreshCw, Search, UserRound, Users } from 'lucide-react'
 import { type FormEvent, useMemo, useState } from 'react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
@@ -161,11 +161,15 @@ export default function StudentsPage() {
       birthDate: String(form.get('birthDate') || '') || null,
       phone: String(form.get('phone') || '').trim(),
       email: String(form.get('email') || '').trim(),
+      fatherName: String(form.get('fatherName') || '').trim(),
+      motherName: String(form.get('motherName') || '').trim(),
+      address: String(form.get('address') || '').trim(),
       planLink: String(form.get('planLink') || '').trim(),
       status: String(form.get('status') || 'DANG_HOC') as Child['status'],
       offAt: String(form.get('offAt') || '') || null,
       type: readTypeConfigs(form),
       invoiceAmount: Number(form.get('invoiceAmount')) || 0,
+      isInvoice: form.get('isInvoice') === 'on',
       ages: readChildAges(form),
     }
     updateMutation.mutate({ id: editingChild._id, data })
@@ -230,12 +234,114 @@ export default function StudentsPage() {
         </form>
       </Modal>
 
-      <Modal open={Boolean(detailChild)} onClose={() => setDetailChild(null)} title={detailChild?.name || 'Thông tin trẻ'} description="Thông tin cá nhân và các khoản phí" className="max-h-[90vh] max-w-3xl overflow-y-auto">
-        {detailChild && <div className="grid gap-5"><dl className="m-0 grid gap-3 sm:grid-cols-2"><InfoItem label="Trạng thái" value={detailChild.status === 'NGHI_HOC' ? 'Đã nghỉ' : 'Đang học'} /><InfoItem label="Ngày nghỉ học" value={formatDate(detailChild.offAt)} /><InfoItem label="Ngày sinh" value={formatDate(detailChild.birthDate)} /><InfoItem label="Giới tính" value={detailChild.gender === 'male' ? 'Nam' : 'Nữ'} /><InfoItem label="Loại học" value={formatTypes(detailChild.type)} /><InfoItem label="Liên hệ" value={detailChild.phone || detailChild.email} /><InfoItem label="Tên bố" value={detailChild.fatherName} /><InfoItem label="Tên mẹ" value={detailChild.motherName} /><InfoItem label="Địa chỉ" value={detailChild.address} /><InfoItem label="Link kế hoạch" value={detailChild.planLink} /><InfoItem label="Xuất hóa đơn" value={detailChild.isInvoice ? 'Có' : 'Không'} /></dl><div><h4 className="mb-3 mt-0 text-sm font-bold">Độ tuổi theo mục kế hoạch</h4><div className="grid gap-1 text-xs">{PLAN_CATEGORIES.map((category) => <span key={category.key}>{category.title}: <strong>{detailChild.ages.find((item) => item.id === category.key)?.age ?? 'Theo ngày sinh'}</strong>{detailChild.ages.some((item) => item.id === category.key) ? ' tuổi' : ''}</span>)}</div></div><div><h4 className="mb-3 mt-0 text-sm font-bold">Học phí theo loại</h4><TypePricingSummary configs={detailChild.type} /></div></div>}
+      <Modal open={Boolean(detailChild)} onClose={() => setDetailChild(null)} title={detailChild?.name || 'Thông tin trẻ'} description="Thông tin cá nhân, lịch học và các khoản phí" className="max-h-[94dvh] max-w-5xl overflow-y-auto">
+        {detailChild && <div className="grid gap-4 sm:gap-5">
+          <section className="grid gap-4 rounded-2xl border border-border bg-surface-muted/30 p-3 sm:p-5">
+            <div className="flex items-center justify-between gap-3 border-b border-border pb-3">
+              <div className="flex min-w-0 items-center gap-3">
+                <img src={detailChild.avatar || defaultAvatar(detailChild.gender)} alt="" className="size-12 shrink-0 rounded-full border border-border bg-surface object-cover" />
+                <div className="min-w-0"><h3 className="m-0 truncate text-base font-bold">{detailChild.name}</h3><p className="m-0 mt-0.5 text-xs text-muted">ID: {detailChild._id}</p></div>
+              </div>
+              <span className={`shrink-0 rounded-full border px-3 py-1.5 text-xs font-bold ${detailChild.status === 'NGHI_HOC' ? 'border-danger/30 bg-danger/10 text-danger' : 'border-emerald-400 bg-emerald-50 text-emerald-700'}`}>{detailChild.status === 'NGHI_HOC' ? 'Đã nghỉ' : 'Đang học'}</span>
+            </div>
+            <dl className="m-0 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              <InfoItem label="Giới tính" value={detailChild.gender === 'male' ? 'Nam' : 'Nữ'} />
+              <InfoItem label="Ngày sinh" value={formatDate(detailChild.birthDate)} />
+              <InfoItem label="Thứ tự hiển thị" value={detailChild.order} />
+              <InfoItem label="Ngày nghỉ học" value={formatDate(detailChild.offAt)} />
+            </dl>
+          </section>
+
+          <section className="grid gap-4 rounded-2xl border border-border bg-surface p-3 sm:p-5">
+            <div className="flex items-center gap-2.5 border-b border-border pb-3"><span className="grid size-9 shrink-0 place-items-center rounded-xl bg-info/10 text-info"><Phone size={17} /></span><div><h3 className="m-0 text-sm font-bold">Liên hệ và phụ huynh</h3><p className="m-0 mt-0.5 text-xs text-muted">Thông tin liên hệ của gia đình</p></div></div>
+            <dl className="m-0 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              <InfoItem label="Số điện thoại" value={detailChild.phone} />
+              <InfoItem label="Email" value={detailChild.email} />
+              <InfoItem label="Tên bố" value={detailChild.fatherName} />
+              <InfoItem label="Tên mẹ" value={detailChild.motherName} />
+              <div className="sm:col-span-2"><InfoItem label="Địa chỉ" value={detailChild.address} /></div>
+              <div className="sm:col-span-2 lg:col-span-3"><InfoItem label="Link kế hoạch" value={detailChild.planLink ? <a href={detailChild.planLink} target="_blank" rel="noreferrer" className="break-all text-primary hover:underline">{detailChild.planLink}</a> : '—'} /></div>
+            </dl>
+          </section>
+
+          <section className="grid gap-4 rounded-2xl border border-primary/25 bg-primary/[0.035] p-3 sm:p-5">
+            <div className="flex items-center gap-2.5 border-b border-primary/15 pb-3"><span className="grid size-9 shrink-0 place-items-center rounded-xl bg-primary/10 text-primary"><GraduationCap size={19} /></span><div><h3 className="m-0 text-sm font-bold">Loại học và học phí</h3><p className="m-0 mt-0.5 text-xs text-muted">{formatTypes(detailChild.type)}</p></div></div>
+            <div className="grid gap-3 lg:grid-cols-2">{detailChild.type.map((config) => <article key={config.type} className="grid gap-3 rounded-xl border border-primary/20 bg-surface p-3 sm:p-4">
+              <div className="flex items-center justify-between gap-3"><strong className="text-sm text-primary">{childTypeLabel(config.type)}</strong>{config.type === 'CA_NGAY' ? <span className="text-xs font-semibold text-muted">Theo tháng</span> : config.type === 'SHADOW' ? <span className="text-xs font-semibold text-muted">Tổng theo tháng</span> : <span className="text-xs font-semibold text-muted">Theo giờ</span>}</div>
+              <TypePricingSummary configs={[config]} />
+              {config.schedules.length > 0 && <div className="grid gap-2 border-t border-border pt-3">{config.schedules.map((schedule, index) => <div key={`${schedule.teacherId}-${index}`} className="flex flex-wrap justify-between gap-x-3 gap-y-1 text-xs"><span><strong>{schedule.teacherName || 'Chưa chọn giáo viên'}</strong>{schedule.scheduleInWeek.length ? ` · ${schedule.scheduleInWeek.join(', ')}` : ''}</span><span className="font-semibold text-primary">{formatMoney(schedule.teacherPrice)}{config.type === 'SHADOW' ? '/tháng' : '/h'}</span></div>)}</div>}
+            </article>)}</div>
+          </section>
+
+          <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(280px,0.42fr)]">
+            <section className="grid gap-3 rounded-2xl border border-border bg-surface-muted/50 p-3 sm:p-4">
+              <div><h3 className="m-0 text-sm font-bold">Độ tuổi theo mục kế hoạch</h3><p className="m-0 mt-0.5 text-xs text-muted">Độ tuổi dùng để chọn nội dung mẫu phù hợp</p></div>
+              <div className="grid gap-2 sm:grid-cols-2">{PLAN_CATEGORIES.map((category) => { const configuredAge = detailChild.ages.find((item) => item.id === category.key)?.age; return <div key={category.key} className="flex items-center justify-between gap-3 rounded-xl bg-app-background px-3 py-2.5 text-xs"><span className="min-w-0 truncate" title={category.title}>{category.title}</span><strong className="shrink-0 text-primary">{configuredAge ? `${configuredAge} tuổi` : 'Theo ngày sinh'}</strong></div> })}</div>
+            </section>
+            <section className="grid gap-3 rounded-2xl border border-border bg-surface-muted/50 p-3 sm:p-4">
+              <div className="flex items-center gap-2.5"><span className="grid size-9 shrink-0 place-items-center rounded-xl bg-warning/15 text-warning"><ReceiptText size={18} /></span><div><h3 className="m-0 text-sm font-bold">Hóa đơn</h3><p className="m-0 mt-0.5 text-xs text-muted">Thông tin xuất hóa đơn</p></div></div>
+              <div className="rounded-xl bg-app-background p-3"><span className="block text-xs text-muted">Trạng thái</span><strong className={detailChild.isInvoice ? 'text-success' : 'text-muted'}>{detailChild.isInvoice ? 'Có xuất hóa đơn' : 'Không xuất hóa đơn'}</strong></div>
+              {detailChild.isInvoice && <div className="rounded-xl bg-app-background p-3"><span className="block text-xs text-muted">Số tiền hóa đơn</span><strong className="text-primary">{formatMoney(detailChild.invoiceAmount)}</strong></div>}
+            </section>
+          </div>
+          <div className="flex justify-end border-t border-border pt-4"><Button type="button" variant="secondary" onClick={() => setDetailChild(null)}>Đóng</Button></div>
+        </div>}
       </Modal>
 
-      <Modal open={Boolean(editingChild)} onClose={() => !updateMutation.isPending && setEditingChild(null)} title="Chỉnh sửa thông tin" description={editingChild?.name} className="max-h-[90vh] max-w-3xl overflow-y-auto">
-        {editingChild && <form onSubmit={handleEdit} className="grid gap-5"><div className="grid gap-4 sm:grid-cols-2"><Field label="Họ và tên"><input name="name" defaultValue={editingChild.name} required className={inputClass} /></Field><Field label="Giới tính"><select name="gender" defaultValue={editingChild.gender} className={inputClass}><option value="male">Nam</option><option value="female">Nữ</option></select></Field><Field label="Trạng thái"><select name="status" defaultValue={editingChild.status} className={inputClass}><option value="DANG_HOC">Đang học</option><option value="NGHI_HOC">Đã nghỉ</option></select></Field><Field label="Ngày nghỉ học"><input name="offAt" type="date" defaultValue={formatDateInput(editingChild.offAt)} className={inputClass} /></Field><Field label="Ngày sinh"><input name="birthDate" type="date" defaultValue={formatDateInput(editingChild.birthDate)} className={inputClass} /></Field><Field label="Số điện thoại"><input name="phone" defaultValue={editingChild.phone} className={inputClass} /></Field><Field label="Email"><input name="email" type="email" defaultValue={editingChild.email} className={inputClass} /></Field><Field label="Link kế hoạch"><input name="planLink" type="url" defaultValue={editingChild.planLink} placeholder="https://..." className={inputClass} /></Field><ChildTypeEditor initial={editingChild.type} teachers={teachersQuery.data || []} /><ChildAgeEditor initial={editingChild.ages} /><Field label="Số tiền hóa đơn"><input name="invoiceAmount" type="number" min="0" step="1000" defaultValue={editingChild.invoiceAmount} className={inputClass} /></Field></div><div className="flex justify-end gap-2 border-t border-border pt-4"><Button type="button" variant="secondary" onClick={() => setEditingChild(null)} disabled={updateMutation.isPending}>Hủy</Button><Button type="submit" disabled={updateMutation.isPending}>{updateMutation.isPending && <Loader2 size={16} className="spin" />}Lưu thay đổi</Button></div></form>}
+      <Modal open={Boolean(editingChild)} onClose={() => !updateMutation.isPending && setEditingChild(null)} title="Chỉnh sửa thông tin trẻ" description={editingChild?.name} className="max-h-[94dvh] max-w-5xl overflow-y-auto">
+        {editingChild && <form onSubmit={handleEdit} className="grid gap-4 sm:gap-5">
+          <section className="grid gap-4 rounded-2xl border border-border bg-surface-muted/30 p-3 sm:p-5">
+            <div className="flex items-center gap-2.5 border-b border-border pb-3">
+              <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-primary/10 text-primary"><UserRound size={18} /></span>
+              <div><h3 className="m-0 text-sm font-bold">Thông tin cơ bản</h3><p className="m-0 mt-0.5 text-xs text-muted">Thông tin nhận diện và trạng thái học của trẻ</p></div>
+            </div>
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              <Field label="Họ và tên"><input name="name" defaultValue={editingChild.name} required autoFocus className={inputClass} /></Field>
+              <Field label="Giới tính"><select name="gender" defaultValue={editingChild.gender} className={inputClass}><option value="male">Nam</option><option value="female">Nữ</option></select></Field>
+              <Field label="Ngày sinh"><input name="birthDate" type="date" defaultValue={formatDateInput(editingChild.birthDate)} className={inputClass} /></Field>
+              <Field label="Thứ tự hiển thị"><input name="order" type="number" min="0" step="1" defaultValue={editingChild.order} className={inputClass} /></Field>
+              <Field label="Trạng thái"><select name="status" defaultValue={editingChild.status} className={inputClass}><option value="DANG_HOC">Đang học</option><option value="NGHI_HOC">Đã nghỉ</option></select></Field>
+              <Field label="Ngày nghỉ học"><input name="offAt" type="date" defaultValue={formatDateInput(editingChild.offAt)} className={inputClass} /></Field>
+            </div>
+          </section>
+
+          <section className="grid gap-4 rounded-2xl border border-border bg-surface p-3 sm:p-5">
+            <div className="flex items-center gap-2.5 border-b border-border pb-3">
+              <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-info/10 text-info"><Phone size={17} /></span>
+              <div><h3 className="m-0 text-sm font-bold">Liên hệ và phụ huynh</h3><p className="m-0 mt-0.5 text-xs text-muted">Thông tin liên lạc, gia đình và kế hoạch của trẻ</p></div>
+            </div>
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              <Field label="Số điện thoại"><input name="phone" type="tel" defaultValue={editingChild.phone} className={inputClass} /></Field>
+              <Field label="Email"><input name="email" type="email" defaultValue={editingChild.email} className={inputClass} /></Field>
+              <Field label="Tên bố"><input name="fatherName" defaultValue={editingChild.fatherName} className={inputClass} /></Field>
+              <Field label="Tên mẹ"><input name="motherName" defaultValue={editingChild.motherName} className={inputClass} /></Field>
+              <div className="sm:col-span-2"><Field label="Địa chỉ"><input name="address" defaultValue={editingChild.address} className={`${inputClass} w-full`} /></Field></div>
+              <div className="sm:col-span-2 lg:col-span-3"><Field label="Link kế hoạch"><input name="planLink" type="url" defaultValue={editingChild.planLink} placeholder="https://..." className={`${inputClass} w-full`} /></Field></div>
+            </div>
+          </section>
+
+          <section className="grid gap-4 rounded-2xl border border-primary/25 bg-primary/[0.035] p-3 sm:p-5">
+            <div className="flex items-center gap-2.5 border-b border-primary/15 pb-3">
+              <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-primary/10 text-primary"><GraduationCap size={19} /></span>
+              <div><h3 className="m-0 text-sm font-bold">Loại học và học phí</h3><p className="m-0 mt-0.5 text-xs text-muted">Chọn loại học, giáo viên, lịch học và mức phí tương ứng</p></div>
+            </div>
+            <ChildTypeEditor initial={editingChild.type} teachers={teachersQuery.data || []} showTitle={false} />
+          </section>
+
+          <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(280px,0.42fr)]">
+            <ChildAgeEditor initial={editingChild.ages} />
+            <section className="grid gap-4 rounded-2xl border border-border bg-surface-muted/50 p-3 sm:p-4">
+              <div className="flex items-center gap-2.5"><span className="grid size-9 shrink-0 place-items-center rounded-xl bg-warning/15 text-warning"><ReceiptText size={18} /></span><div><h3 className="m-0 text-sm font-bold">Hóa đơn</h3><p className="m-0 mt-0.5 text-xs text-muted">Thiết lập xuất hóa đơn cho trẻ</p></div></div>
+              <label className="flex cursor-pointer items-center gap-3 rounded-xl border border-border bg-app-background p-3 text-sm font-semibold"><input name="isInvoice" type="checkbox" defaultChecked={editingChild.isInvoice} className="size-4" /><span>Xuất hóa đơn</span></label>
+              <Field label="Số tiền hóa đơn"><input name="invoiceAmount" type="number" min="0" step="1000" defaultValue={editingChild.invoiceAmount} className={`${inputClass} w-full`} /></Field>
+            </section>
+          </div>
+
+          <div className="sticky -bottom-5 z-10 -mx-1 flex gap-2 border-t border-border bg-surface/95 px-1 pb-1 pt-4 backdrop-blur sm:justify-end">
+            <Button type="button" variant="secondary" className="flex-1 sm:flex-none" onClick={() => setEditingChild(null)} disabled={updateMutation.isPending}>Hủy</Button>
+            <Button type="submit" className="flex-1 sm:flex-none" disabled={updateMutation.isPending}>{updateMutation.isPending && <Loader2 size={16} className="spin" />}Lưu thay đổi</Button>
+          </div>
+        </form>}
       </Modal>
     </div>
   )
