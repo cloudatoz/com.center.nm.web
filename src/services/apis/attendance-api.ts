@@ -69,10 +69,13 @@ export async function getChildMonthlyAttendance(childId: string, month: string, 
   return parsed.data.find((attendance) => attendance.month === month && attendance.type === type) || null
 }
 
-export async function getMonthlyAttendances(month: string, type?: AttendanceType | 'ALL') {
+export async function getMonthlyAttendances(month: string, type?: AttendanceType | 'ALL', includeChildren = true) {
   const [year, monthNumber] = month.split('-')
   const response = await apiClient.get(`/v1/attendance/monthly/${Number(monthNumber)}/${year}`, {
-    params: type && type !== 'ALL' ? { type } : undefined,
+    params: {
+      ...(type && type !== 'ALL' ? { type } : {}),
+      ...(!includeChildren ? { includeChildren: 'false' } : {}),
+    },
   })
   const parsed = z.array(monthlyAttendanceSchema).safeParse(unwrapPayload<unknown>(response.data))
   if (!parsed.success) throw new ApiContractError('Dữ liệu trạng thái điểm danh không đúng định dạng')

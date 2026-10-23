@@ -243,11 +243,31 @@ export default function StudentHistoryPage() {
     WEEKDAY_LABELS[new Date(selectedYear, selectedMonth - 1, day).getDay()]
   const attendanceQuery = useQuery({
     queryKey: ['student-history', month, type],
-    queryFn: () => getMonthlyAttendances(month, type),
+    queryFn: async () => {
+      const [attendances, children] = await Promise.all([
+        getMonthlyAttendances(month, type, false),
+        queryClient.ensureQueryData({ queryKey: ['children'], queryFn: getChildren, staleTime: Infinity }),
+      ])
+      const childrenById = new Map(children.map((child) => [child._id, child]))
+      return attendances.map((attendance) => {
+        const childId = typeof attendance.children === 'string' ? attendance.children : attendance.children._id
+        return { ...attendance, children: childrenById.get(childId) || childId }
+      })
+    },
+    staleTime: Infinity,
+    gcTime: Infinity,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
+    refetchOnMount: false,
   })
   const childrenQuery = useQuery({
     queryKey: ['children'],
     queryFn: getChildren,
+    staleTime: Infinity,
+    gcTime: Infinity,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
+    refetchOnMount: false,
   })
   useEffect(() => {
     if (!isTeacherSession || !childrenQuery.isSuccess || teacherFilter.trim() || initializedChildSelection.current) return
