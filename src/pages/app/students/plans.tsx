@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { ChevronDown, ChevronUp, Download, Loader2, Save, Search } from 'lucide-react'
+import { CheckCircle2, ChevronDown, ChevronUp, Download, Loader2, Save, Search } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { toast } from 'sonner'
@@ -91,8 +91,9 @@ export default function StudentPlansPage() {
   const [search, setSearch] = useState('')
   const [days, setDays] = useState<PlanDay[]>([])
   const [isDirty, setIsDirty] = useState(false)
-  const [editingDate, setEditingDate] = useState<string | null>(null)
+  const [expandedDates, setExpandedDates] = useState<Set<string>>(new Set())
   const [editingItemKey, setEditingItemKey] = useState<string | null>(null)
+  const [recentlySavedItem, setRecentlySavedItem] = useState<string | null>(null)
   const [year, monthNumber] = month.split('-').map(Number)
   const totalDays = new Date(year, monthNumber, 0).getDate()
 
@@ -128,7 +129,9 @@ export default function StudentPlansPage() {
     }))
     setDays(loadedDays)
     setIsDirty(false)
-    setEditingDate(null)
+    setExpandedDates(new Set(loadedDays
+      .filter((day) => day.items.some((item) => item.content.trim()))
+      .map((day) => dateKey(day.date))))
     setEditingItemKey(null)
   }, [plansQuery.data, plansQuery.isSuccess, selectedChildId])
 
@@ -305,28 +308,42 @@ export default function StudentPlansPage() {
                     const dayDate = dateKey(day.date)
                     const { label, isSaturday, isSunday } = formatPlanDate(dayDate)
                     const hasContent = day.items.some((item) => item.content.trim())
-                    const isEditing = editingDate === dayDate
+                    const isEditing = expandedDates.has(dayDate)
                     const hasAttendance = attendedDates.has(dayDate)
                     return <TableRow key={dayDate} className="align-top border-b-2 border-primary/35 last:border-b-0">
                       <TableCell className="align-top p-0">
                         <button type="button" aria-expanded={isEditing} onClick={() => {
-                          setEditingDate(isEditing ? null : dayDate)
+                          setExpandedDates((current) => {
+                            const next = new Set(current)
+                            if (next.has(dayDate)) next.delete(dayDate)
+                            else next.add(dayDate)
+                            return next
+                          })
                           setEditingItemKey(null)
-                        }} className={`flex w-full cursor-pointer items-center gap-2 border-0 px-3 py-2 text-left transition hover:brightness-95 ${hasContent || isEditing ? 'border-b border-border' : ''} ${isSaturday || isSunday ? 'bg-amber-200/80 text-amber-900 dark:bg-amber-500/30 dark:text-amber-200' : 'bg-amber-50 text-text-main dark:bg-amber-500/10'}`}>
+                        }} className={`flex w-full cursor-pointer items-center gap-2 border-0 px-3 py-2 text-left transition hover:brightness-95 ${isEditing ? 'border-b border-border' : ''} ${isSaturday || isSunday ? 'bg-amber-200/80 text-amber-900 dark:bg-amber-500/30 dark:text-amber-200' : 'bg-amber-50 text-text-main dark:bg-amber-500/10'}`}>
                           <strong className="whitespace-nowrap text-sm leading-snug">{label}</strong>
                           {hasAttendance && <span className="whitespace-nowrap rounded-md border border-emerald-500 bg-white px-2 py-0.5 text-[11px] font-bold text-emerald-700">Có điểm danh</span>}
+                          {hasContent && !isEditing && <span className="min-w-0 flex-1 truncate text-xs font-bold text-emerald-700">Đã có kế hoạch</span>}
                           {!hasContent && !isEditing && <span className="min-w-0 flex-1 truncate text-xs font-normal text-muted">Chưa có kế hoạch</span>}
                           {isEditing ? <ChevronUp size={16} className="ml-auto shrink-0" /> : <ChevronDown size={16} className="ml-auto shrink-0" />}
                         </button>
-                        {(hasContent || isEditing) && <div className="p-2 sm:p-3">
+                        {isEditing && <div className="p-2 sm:p-3">
                           <div className="grid gap-1.5">{day.items.map((item) => {
                             const inputId = `plan-${dayDate}-${item.key}`
-                            const isEditingItem = isEditing && editingItemKey === item.key
+                            const itemIdentity = `${dayDate}:${item.key}`
+                            const isEditingItem = isEditing && editingItemKey === itemIdentity
                             if (!isEditingItem) return <button key={item.key} type="button" onClick={() => {
-                              setEditingDate(dayDate)
-                              setEditingItemKey(item.key)
-                            }} className="grid min-h-10 grid-cols-[minmax(5.5rem,28%)_1fr] overflow-hidden rounded-md border border-slate-200 bg-white text-left transition hover:border-primary hover:shadow-sm sm:grid-cols-[minmax(6.5rem,28%)_1fr]"><strong className={`flex min-w-0 items-center break-words px-1.5 py-1 text-[10px] leading-tight sm:text-[11px] ${CATEGORY_COLORS[item.key]}`}>{item.title}</strong><p className="m-0 line-clamp-3 min-w-0 self-center whitespace-pre-wrap break-words bg-white px-2 py-1.5 text-xs font-normal leading-snug text-slate-800">{item.content || '—'}</p></button>
-                            return <div key={item.key} className={`grid min-w-0 gap-1.5 rounded-md border border-primary p-2 text-sm font-semibold shadow-sm ${CATEGORY_COLORS[item.key]}`}>
+                              setExpandedDates((current) => new Set(current).add(dayDate))
+                              setEditingItemKey(itemIdentity)
+                            }} className={`relative grid min-h-10 grid-cols-[minmax(5.5rem,28%)_1fr] overflow-hidden rounded-md border bg-white text-left transition hover:border-primary hover:shadow-sm sm:grid-cols-[minmax(6.5rem,28%)_1fr] ${recentlySavedItem === itemIdentity ? 'border-emerald-500 bg-emerald-50 ring-2 ring-emerald-400/60' : 'border-slate-200'}`}><strong className={`flex min-w-0 items-center break-words px-1.5 py-1 text-[10px] leading-tight sm:text-[11px] ${CATEGORY_COLORS[item.key]}`}>{item.title}</strong><p className="m-0 line-clamp-3 min-w-0 self-center whitespace-pre-wrap break-words bg-white px-2 py-1.5 text-xs font-normal leading-snug text-slate-800">{item.content || '—'}</p>{recentlySavedItem === itemIdentity && <span className="absolute right-1 top-1 flex items-center gap-1 rounded-full bg-emerald-600 px-1.5 py-0.5 text-[9px] font-bold text-white shadow-sm"><CheckCircle2 size={8} />lưu</span>}</button>
+                            return <div key={item.key} onBlur={(event) => {
+                              if (event.currentTarget.contains(event.relatedTarget as Node | null)) return
+                              setEditingItemKey(null)
+                              if (isDirty && !saveMutation.isPending) saveMutation.mutate(undefined, { onSuccess: () => {
+                                setRecentlySavedItem(itemIdentity)
+                                window.setTimeout(() => setRecentlySavedItem((current) => current === itemIdentity ? null : current), 1000)
+                              } })
+                            }} className={`grid min-w-0 gap-1.5 rounded-md border border-primary p-2 text-sm font-semibold shadow-sm ${CATEGORY_COLORS[item.key]}`}>
                               <div className="flex min-w-0 items-center justify-between gap-2"><label htmlFor={inputId} className="min-w-0 text-xs">{item.title}</label><Button type="button" size="sm" variant="secondary" className="h-7 shrink-0 px-2 text-xs" onClick={() => fillRandomExample(dayDate, item.key)}>Điền mẫu</Button></div>
                               <textarea id={inputId} autoFocus value={item.content} onChange={(event) => updateContent(dayDate, item.key, event.target.value)} rows={3} placeholder="Nhập nội dung hoạt động..." className="min-h-20 w-full resize-y rounded-lg border border-border bg-white/80 p-2.5 text-sm font-normal leading-relaxed text-text-main outline-none focus:border-primary dark:bg-app-background" />
                             </div>
