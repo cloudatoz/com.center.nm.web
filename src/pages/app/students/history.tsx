@@ -13,7 +13,7 @@ import { boardingTotal, configForAttendance, lessonConfigType, schedulesForDate 
 import { randomPlanTemplate } from '@/lib/plan-template-samples'
 import { getAccountBanks, getVietQrImage } from '@/services/apis/account-bank-api'
 import { createAttendance, deleteAttendanceDay, type AttendanceType, getMonthlyAttendances, type MonthlyAttendance, setAttendanceCompleted, updateAttendanceDay, updateAttendanceNote } from '@/services/apis/attendance-api'
-import { type Child, type ChildTypeCode, getChildren, updateChild } from '@/services/apis/children-api'
+import { type Child, type ChildSchedule, type ChildTypeCode, getChildren, updateChild } from '@/services/apis/children-api'
 import { createPlan, getPlans, PLAN_CATEGORIES, type PlanItem, updatePlan } from '@/services/apis/plan-api'
 import { getTeachers } from '@/services/apis/teachers-api'
 import { useAuthStore } from '@/stores/auth-store'
@@ -114,8 +114,12 @@ const attendanceTeacherNames = (days: AttendanceDay[], scheduledTeacherNames = '
   uniqueAttendanceTeachers(days).map((teacher) => teacher.name).join(', ') || scheduledTeacherNames || 'Chưa có dữ liệu điểm danh'
 const groupDaysByDate = (days: AttendanceDay[]) => {
   const grouped = new Map<number, AttendanceDay[]>()
+  const seen = new Set<string>()
   for (const item of days) {
     const day = Number(item.date.slice(8, 10))
+    const key = `${item.date.slice(0, 10)}_${item.teacherId || ''}`
+    if (seen.has(key)) continue
+    seen.add(key)
     grouped.set(day, [...(grouped.get(day) || []), item])
   }
   return grouped
@@ -152,13 +156,24 @@ const attendanceTeacherIds = (attendance: MonthlyAttendance) => {
   ].filter((id): id is string => Boolean(id)).map(String)
 }
 
-function TeacherSalaryLines({ days, selectedTeacherId, onSelect, monthlyTotal = false }: { days: AttendanceDay[]; selectedTeacherId?: string; onSelect?: (teacherId: string) => void; monthlyTotal?: boolean }) {
-  const teachers = uniqueAttendanceTeachers(days)
+function TeacherSalaryLines({ days, configuredSchedules = [], selectedTeacherId, onSelect, monthlyTotal = false }: { days: AttendanceDay[]; configuredSchedules?: ChildSchedule[]; selectedTeacherId?: string; onSelect?: (teacherId: string) => void; monthlyTotal?: boolean }) {
+  const teacherMap = new Map(uniqueAttendanceTeachers(days).map((teacher) => [teacher.id, teacher]))
+  for (const schedule of configuredSchedules) {
+    if (!schedule.teacherId) continue
+    const id = String(schedule.teacherId)
+    const existing = teacherMap.get(id)
+    teacherMap.set(id, {
+      id,
+      name: schedule.teacherName || existing?.name || `GV #${id}`,
+      salary: schedule.teacherPrice || existing?.salary || 0,
+    })
+  }
+  const teachers = [...teacherMap.values()]
   if (!teachers.length) return <span>{monthlyTotal ? 'Tổng lương GV' : 'Lương GV 1h'}: <strong className="text-blue-600 dark:text-blue-400">Chưa có dữ liệu</strong></span>
   const latestTeacher = [...days]
     .filter((day) => !day.absent && (day.teacherId || day.teacherName))
     .sort((left, right) => right.date.localeCompare(left.date))[0]
-  const currentKey = selectedTeacherId || latestTeacher?.teacherId || latestTeacher?.teacherName
+  const currentKey = selectedTeacherId || configuredSchedules.find((schedule) => schedule.teacherId)?.teacherId || latestTeacher?.teacherId || latestTeacher?.teacherName
   return <span className="grid w-full gap-1">{teachers.map((teacher) => {
     const isCurrent = teacher.id === currentKey
     return <button type="button" key={teacher.id} onClick={() => onSelect?.(teacher.id)} className={`block w-full cursor-pointer rounded-r-md border-l-2 px-2 py-1 text-left transition hover:ring-1 hover:ring-blue-300 ${isCurrent ? 'border-emerald-500 bg-emerald-50 text-emerald-900 ring-1 ring-emerald-200 dark:bg-emerald-500/15 dark:text-emerald-100 dark:ring-emerald-500/30' : 'border-blue-500 bg-blue-50/80 text-slate-700 dark:bg-blue-500/10 dark:text-slate-200'}`}>
@@ -295,6 +310,18 @@ export default function StudentHistoryPage() {
   }, [teacherSearch, teachersQuery.data])
   const selectedTeacherName = (teachersQuery.data || []).find((teacher) => teacher._id === selectedTeacherId)?.name
   const editTeacherName = (teachersQuery.data || []).find((teacher) => teacher._id === editTeacherId)?.name
+  const editingDayChild = editingDay
+    ? childrenQuery.data?.find((child) => String(child._id) === String(editingDay.childId))
+    : undefined
+  const editingDayPricing = editingDay
+    ? configForAttendance(editingDayChild || null, editingDay.attendanceType, editLessonType)
+    : undefined
+  const editTeacherSalary = editTeacherId
+    ? editingDayPricing?.schedules.find((schedule) => String(schedule.teacherId || '') === String(editTeacherId))?.teacherPrice
+      ?? editingDayPricing?.teacherPrice
+      ?? (String(editingDay?.day.teacherId || '') === String(editTeacherId) ? editingDay?.day.salaryTeacher : 0)
+      ?? 0
+    : 0
   useEffect(() => {
     if (!editingDay) return setEditingDayPlanItems([])
     setIsDayPlanCompact(true)
@@ -401,11 +428,22 @@ export default function StudentHistoryPage() {
     mutationFn: ({ child, typeCode, teacherId, teacherPrice }: { child: Child; typeCode: ChildTypeCode; teacherId: string | null; teacherPrice: number }) =>
       updateChild(child._id, {
         type: child.type.map((config) => config.type === typeCode
-          ? { ...config, teacherPrice, schedules: teacherId ? [{ ...(config.schedules[0] || { scheduleInWeek: [] }), teacherId, teacherName: '', teacherPrice }, ...config.schedules.slice(1)] : config.schedules.slice(1) }
+          ? { ...config, teacherPrice, schedules: teacherId ? [{ ...(config.schedules[0] || { scheduleInWeek: [] }), teacherId, teacherName: '', teacherPrice }, ...config.schedules.slice(1).filter((schedule) => schedule.teacherId)] : config.schedules.slice(1).filter((schedule) => schedule.teacherId) }
           : config),
       }),
-    onSuccess: (updated) => {
+    onSuccess: (updated, variables) => {
       updateCachedChild(updated)
+      if (variables.teacherId) {
+        const attendanceType = variables.typeCode.startsWith('CA_NHAN') ? 'THEO_BUOI' : variables.typeCode
+        setSelectedAttendanceTeachers((current) => {
+          const next = { ...current }
+          for (const attendance of attendanceQuery.data || []) {
+            const attendanceChildId = typeof attendance.children === 'string' ? attendance.children : attendance.children._id
+            if (String(attendanceChildId) === String(updated._id) && attendance.type === attendanceType) next[attendance._id] = variables.teacherId as string
+          }
+          return next
+        })
+      }
       setFindingTeacherFor(null)
       setTeacherSearch('')
       setSelectedTeacherId('')
@@ -817,7 +855,7 @@ export default function StudentHistoryPage() {
                     <TableCell className="text-center">
                       <div className="mb-1 flex max-w-32 items-center gap-1.5 rounded-lg border border-blue-200 bg-blue-50/60 px-2 py-1 text-xs leading-snug text-text-main dark:border-blue-500/30 dark:bg-blue-500/10 sm:hidden"><strong className="min-w-0 truncate">{child?.name || `Trẻ #${attendance.children}`}</strong><span className="shrink-0 truncate text-[9px] font-semibold text-blue-600 dark:text-blue-300">· {childTypeText(child)}</span></div>
                       <span className={`inline-flex shrink-0 whitespace-nowrap rounded-full px-2 py-1 text-[10px] font-bold ${isFullDayType(attendance.type) ? 'bg-blue-50 text-blue-700 dark:bg-blue-500/15 dark:text-blue-300' : 'bg-purple-50 text-purple-700 dark:bg-purple-500/15 dark:text-purple-300'}`}>{attendanceTypeLabel(attendance.type)}</span>
-                      {needsTeacher(attendance.type) && <div className="mx-auto mt-1 grid max-w-40 gap-0.5 text-[10px] text-muted"><span>GV: <strong className="text-blue-600 dark:text-blue-400">{attendanceTeacherNames(attendance.days, pricingConfig?.schedules.map((schedule) => schedule.teacherName).filter(Boolean).join(', '))}</strong></span>{!isTeacherSession && <span className="contents">{child && <Button type="button" size="sm" variant="secondary" className={`mx-auto my-1 ${FIND_TEACHER_BUTTON_CLASS}`} onClick={() => { setFindingTeacherFor({ child: child as Child, childName: child.name || `Trẻ #${childId}`, typeCode: pricingConfig?.type || lessonConfigType(sessionSnapshot?.lessonType), teacherId: pricingConfig?.teacherId }); setTeacherSearch(''); setTeacherHourlySalary(String(pricingConfig?.teacherPrice || 130000)); setSelectedTeacherId(pricingConfig?.teacherId || '') }}><Search size={12} />Tìm GV</Button>}<TeacherSalaryLines days={attendance.days} selectedTeacherId={selectedAttendanceTeachers[attendance._id]} onSelect={(teacherId) => setSelectedAttendanceTeachers((current) => ({ ...current, [attendance._id]: teacherId }))} /><span>Học phí 1h: <strong className="text-emerald-600 dark:text-emerald-300">{formatMoney(sessionSnapshot?.tuitionFee || pricingConfig?.price || 0)}</strong></span></span>}</div>}
+                      {needsTeacher(attendance.type) && <div className="mx-auto mt-1 grid max-w-40 gap-0.5 text-[10px] text-muted"><span>GV: <strong className="text-blue-600 dark:text-blue-400">{attendanceTeacherNames(attendance.days, pricingConfig?.schedules.map((schedule) => schedule.teacherName).filter(Boolean).join(', '))}</strong></span>{!isTeacherSession && <span className="contents">{child && <Button type="button" size="sm" variant="secondary" className={`mx-auto my-1 ${FIND_TEACHER_BUTTON_CLASS}`} onClick={() => { setFindingTeacherFor({ child: child as Child, childName: child.name || `Trẻ #${childId}`, typeCode: pricingConfig?.type || lessonConfigType(sessionSnapshot?.lessonType), teacherId: pricingConfig?.teacherId }); setTeacherSearch(''); setTeacherHourlySalary(String(pricingConfig?.teacherPrice || 130000)); setSelectedTeacherId(pricingConfig?.teacherId || '') }}><Search size={12} />Tìm GV</Button>}<TeacherSalaryLines days={attendance.days} configuredSchedules={pricingConfig?.schedules} selectedTeacherId={selectedAttendanceTeachers[attendance._id]} onSelect={(teacherId) => setSelectedAttendanceTeachers((current) => ({ ...current, [attendance._id]: teacherId }))} /><span>Học phí 1h: <strong className="text-emerald-600 dark:text-emerald-300">{formatMoney(sessionSnapshot?.tuitionFee || pricingConfig?.price || 0)}</strong></span></span>}</div>}
                       {!isTeacherSession && <><span className="mx-auto mt-1 block whitespace-nowrap text-[10px] font-semibold text-emerald-600 dark:text-emerald-300">Thu: {formatMoney(rowTotals.revenue)}</span><span className="mx-auto block whitespace-nowrap text-[10px] font-semibold text-red-600 dark:text-red-300">Chi: {formatMoney(rowTotals.expense)}</span></>}
                       {attendance.isCompleted && <span className="mx-auto mt-1 flex w-fit items-center gap-1 text-[10px] font-bold text-emerald-600 dark:text-emerald-300"><CheckCircle2 size={10} />Hoàn tất</span>}
                       <Button type="button" size="sm" variant="secondary" className="complete-attention mx-auto mt-2" disabled={finishEditMutation.isPending || dayMutation.isPending} onClick={() => finishEditMutation.mutate(attendance)}><CheckCircle2 size={13} />Hoàn tất điểm danh</Button>
@@ -915,7 +953,7 @@ export default function StudentHistoryPage() {
                           </div>
                           <div className="hidden sm:block"><Button type="button" size="sm" variant="secondary" className="complete-attention h-7 px-2 text-sm" disabled={finishEditMutation.isPending || dayMutation.isPending} onClick={() => finishEditMutation.mutate(attendance)}><CheckCircle2 size={13} />Hoàn tất điểm danh</Button></div>
                         </div>
-                        {needsTeacher(attendance.type) && <div className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg bg-purple-50/70 px-2.5 py-2 text-xs dark:bg-purple-500/10"><div className="flex w-full items-center gap-2 border-b border-purple-200 pb-1.5 text-[11px] font-bold dark:border-purple-500/30 sm:hidden"><span className="text-purple-700 dark:text-purple-300">{attendanceTypeLabel(attendance.type)}</span><span className="text-muted">·</span><span className={`inline-flex items-center gap-1 ${attendance.isCompleted ? 'text-emerald-700 dark:text-emerald-300' : 'text-amber-700 dark:text-amber-300'}`}>{attendance.isCompleted ? <CheckCircle2 size={12} /> : <XCircle size={12} />}{attendance.isCompleted ? 'Hoàn thành điểm danh' : 'Chưa điểm danh'}</span></div><span>GV: <strong className="text-blue-600 dark:text-blue-400">{attendanceTeacherNames(attendance.days, pricingConfig?.schedules.map((schedule) => schedule.teacherName).filter(Boolean).join(', '))}</strong></span>{!isTeacherSession && <span className="contents">{child && <Button type="button" size="sm" variant="secondary" className={FIND_TEACHER_BUTTON_CLASS} onClick={() => { setFindingTeacherFor({ child: child as Child, childName: child.name || `Trẻ #${childId}`, typeCode: pricingConfig?.type || lessonConfigType(latestSnapshot?.lessonType), teacherId: pricingConfig?.teacherId }); setTeacherSearch(''); setTeacherHourlySalary(String(pricingConfig?.teacherPrice || 130000)); setSelectedTeacherId(pricingConfig?.teacherId || '') }}><Search size={12} />Tìm GV</Button>}<TeacherSalaryLines days={attendance.days} selectedTeacherId={selectedAttendanceTeachers[attendance._id]} onSelect={(teacherId) => setSelectedAttendanceTeachers((current) => ({ ...current, [attendance._id]: teacherId }))} /><span>Học phí 1h: <strong className="text-emerald-600 dark:text-emerald-300">{formatMoney(latestSnapshot?.tuitionFee || pricingConfig?.price || 0)}</strong></span></span>}</div>}
+                        {needsTeacher(attendance.type) && <div className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg bg-purple-50/70 px-2.5 py-2 text-xs dark:bg-purple-500/10"><div className="flex w-full items-center gap-2 border-b border-purple-200 pb-1.5 text-[11px] font-bold dark:border-purple-500/30 sm:hidden"><span className="text-purple-700 dark:text-purple-300">{attendanceTypeLabel(attendance.type)}</span><span className="text-muted">·</span><span className={`inline-flex items-center gap-1 ${attendance.isCompleted ? 'text-emerald-700 dark:text-emerald-300' : 'text-amber-700 dark:text-amber-300'}`}>{attendance.isCompleted ? <CheckCircle2 size={12} /> : <XCircle size={12} />}{attendance.isCompleted ? 'Hoàn thành điểm danh' : 'Chưa điểm danh'}</span></div><span>GV: <strong className="text-blue-600 dark:text-blue-400">{attendanceTeacherNames(attendance.days, pricingConfig?.schedules.map((schedule) => schedule.teacherName).filter(Boolean).join(', '))}</strong></span>{!isTeacherSession && <span className="contents">{child && <Button type="button" size="sm" variant="secondary" className={FIND_TEACHER_BUTTON_CLASS} onClick={() => { setFindingTeacherFor({ child: child as Child, childName: child.name || `Trẻ #${childId}`, typeCode: pricingConfig?.type || lessonConfigType(latestSnapshot?.lessonType), teacherId: pricingConfig?.teacherId }); setTeacherSearch(''); setTeacherHourlySalary(String(pricingConfig?.teacherPrice || 130000)); setSelectedTeacherId(pricingConfig?.teacherId || '') }}><Search size={12} />Tìm GV</Button>}<TeacherSalaryLines days={attendance.days} configuredSchedules={pricingConfig?.schedules} selectedTeacherId={selectedAttendanceTeachers[attendance._id]} onSelect={(teacherId) => setSelectedAttendanceTeachers((current) => ({ ...current, [attendance._id]: teacherId }))} /><span>Học phí 1h: <strong className="text-emerald-600 dark:text-emerald-300">{formatMoney(latestSnapshot?.tuitionFee || pricingConfig?.price || 0)}</strong></span></span>}</div>}
                         <div className="flex justify-end sm:hidden"><Button type="button" size="sm" variant="secondary" className="complete-attention w-full" disabled={finishEditMutation.isPending || dayMutation.isPending} onClick={() => finishEditMutation.mutate(attendance)}><CheckCircle2 size={13} />Hoàn tất điểm danh</Button></div>
                         <div className="grid min-w-0 grid-cols-7 gap-0.5 sm:gap-1">{CALENDAR_WEEKDAYS.map((weekday, weekdayIndex) => <div key={weekday} className={`min-w-0 border-b border-r border-border px-0.5 py-1.5 text-center text-[11px] font-bold text-muted last:border-r-0 sm:px-1 sm:text-[13px] lg:text-sm ${weekdayIndex >= 5 ? 'bg-slate-200/80 dark:bg-slate-700/70' : 'bg-amber-100/90 dark:bg-amber-500/20'}`}>{weekday}</div>)}
                           {calendarDays.map((day, index) => {
@@ -923,21 +961,48 @@ export default function StudentHistoryPage() {
                             if (!day) return <div key={`empty-${index}`} className={isWeekend ? 'min-h-16 rounded-md bg-slate-100 dark:bg-slate-800/70 sm:min-h-20 lg:min-h-16' : 'min-h-16 sm:min-h-20 lg:min-h-16'} />
                             const date = `${month}-${String(day).padStart(2, '0')}`
                             const items = attendanceByDay.get(day) || []
-                            const item = items.find((session) => session.teacherId === selectedAttendanceTeachers[attendance._id]) || items[0]
                             const hasAbsent = items.some((session) => session.absent)
                             const hasPresent = items.some((session) => !session.absent)
-                            return <button key={date} type="button" disabled={dayMutation.isPending} onClick={async (event) => {
-                              if (!await confirmEditingFromCell(attendance, child?.name || `Trẻ #${childId}`, event.currentTarget)) return
-                              const scheduledIds = scheduledTeacherIds(pricingConfig, date)
-                              const fallbackTeacherId = pricingConfig?.teacherId || pricingConfig?.schedules.find((schedule) => schedule.teacherId)?.teacherId || ''
-                              const teacherIds = filteredTeacherId ? [filteredTeacherId] : scheduledIds.length ? scheduledIds : fallbackTeacherId ? [fallbackTeacherId] : []
-                              const scheduledTeacherId = selectedAttendanceTeachers[attendance._id] || filteredTeacherId || item?.teacherId || teacherIds[0] || fallbackTeacherId
-                              if (item) return openDayEditor(attendance, date, item, scheduledTeacherId)
-                              if (needsTeacher(attendance.type) && !scheduledTeacherId) return toast.error('Trẻ chưa có giáo viên trong lịch ngày này')
-                              dayMutation.mutate({ attendanceId: attendance._id, childId, date, attendanceType: attendance.type, attended: false, defaultTeacherId: scheduledTeacherId, teacherIds })
-                            }} className={`relative flex min-w-0 cursor-pointer flex-col rounded-md border p-1 pt-5 text-left transition sm:p-1.5 sm:pt-6 lg:pt-6 ${items.length > 1 ? 'min-h-24 sm:min-h-28 lg:min-h-24' : 'min-h-16 sm:min-h-20 lg:min-h-16'} ${items.length ? hasAbsent && !hasPresent ? 'border-amber-300 bg-amber-50 text-amber-800 dark:border-amber-500/40 dark:bg-amber-500/15 dark:text-amber-300' : 'border-emerald-300 bg-emerald-50 text-emerald-800 dark:border-emerald-500/40 dark:bg-emerald-500/15 dark:text-emerald-300' : 'border-border bg-surface'} ${isWeekend ? '!bg-slate-100 dark:!bg-slate-800/80' : ''} hover:border-primary/50 hover:ring-1 hover:ring-primary/20 disabled:opacity-80`} title={editingIds.has(attendance._id) ? items.length ? 'Bấm để chỉnh sửa' : 'Bấm để điểm danh' : `Bấm để điểm danh bé ${child?.name || childId}`}>
-                              <span className="absolute left-1 top-1 text-sm font-bold sm:left-1.5 sm:text-base lg:text-lg">{day}</span>{items.length > 0 && <span className="mt-auto block min-w-0 text-[10px] font-semibold leading-snug sm:text-xs lg:text-sm">{items.map((session) => <span key={`${session.date}-${session.teacherId || session.teacherName}`} className="block"><span className="block">{session.absent ? 'Nghỉ' : isFullDayType(attendance.type) ? 'Học' : `${session.lessonType || 'HỌC'} · ${formatDuration(session.spendTime)}`}</span>{!session.absent && session.teacherName && <span className="block truncate opacity-80">{session.teacherName}</span>}{session.notes && <span className="block truncate text-[8px] font-medium text-violet-600 dark:text-violet-300 sm:text-[9px]" title={session.notes}>* {session.notes}</span>}{session.refund > 0 && <span className="block truncate text-red-600">Hoàn {formatMoney(session.refund)}</span>}</span>)}</span>}
-                            </button>
+                            const scheduledIds = scheduledTeacherIds(pricingConfig, date)
+                            const fallbackTeacherId = pricingConfig?.teacherId || pricingConfig?.schedules.find((schedule) => schedule.teacherId)?.teacherId || ''
+                            const selectedRowTeacherId = selectedAttendanceTeachers[attendance._id]
+                            const teacherIds = filteredTeacherId ? [filteredTeacherId] : selectedRowTeacherId ? [selectedRowTeacherId] : scheduledIds.length ? scheduledIds : fallbackTeacherId ? [fallbackTeacherId] : []
+                            const missingTeacherIds = needsTeacher(attendance.type)
+                              ? teacherIds.filter((teacherId) => !items.some((session) => String(session.teacherId || '') === String(teacherId)))
+                              : []
+                            const teacherNameById = new Map([
+                              ...(teachersQuery.data || []).map((teacher) => [String(teacher._id), teacher.name] as const),
+                              ...attendance.days.filter((session) => session.teacherId).map((session) => [String(session.teacherId), session.teacherName || `GV #${session.teacherId}`] as const),
+                              ...(pricingConfig?.schedules || []).filter((schedule) => schedule.teacherId).map((schedule) => [String(schedule.teacherId), schedule.teacherName] as const),
+                            ])
+                            const cellClass = `relative flex min-w-0 flex-col rounded-md border p-1 pt-5 text-left transition sm:p-1.5 sm:pt-6 lg:pt-6 ${items.length > 1 || missingTeacherIds.length ? 'min-h-24 sm:min-h-28 lg:min-h-24' : 'min-h-16 sm:min-h-20 lg:min-h-16'} ${items.length ? hasAbsent && !hasPresent ? 'border-amber-300 bg-amber-50 text-amber-800 dark:border-amber-500/40 dark:bg-amber-500/15 dark:text-amber-300' : 'border-emerald-300 bg-emerald-50 text-emerald-800 dark:border-emerald-500/40 dark:bg-emerald-500/15 dark:text-emerald-300' : 'border-border bg-surface'} ${isWeekend ? '!bg-slate-100 dark:!bg-slate-800/80' : ''}`
+                            return <div key={date} className={cellClass}>
+                              <span className="absolute left-1 top-1 text-sm font-bold sm:left-1.5 sm:text-base lg:text-lg">{day}</span>
+                              <div className="mt-auto grid min-w-0 gap-1">
+                                {items.map((session) => <button key={`${session.date}-${session.teacherId || session.teacherName}`} type="button" disabled={dayMutation.isPending} onClick={async (event) => {
+                                  if (!await confirmEditingFromCell(attendance, child?.name || `Trẻ #${childId}`, event.currentTarget)) return
+                                  setSelectedAttendanceTeachers((current) => ({ ...current, [attendance._id]: session.teacherId || session.teacherName || '' }))
+                                  openDayEditor(attendance, date, session, session.teacherId || teacherIds[0])
+                                }} className="min-w-0 rounded border border-current/20 bg-white/70 px-1 py-1 text-left text-[10px] font-semibold leading-snug transition hover:border-primary hover:ring-1 hover:ring-primary/30 dark:bg-slate-950/20 sm:text-xs lg:text-sm" title={`Chỉnh buổi của ${session.teacherName || 'giáo viên'}`}>
+                                  <span className="block">{session.absent ? 'Nghỉ' : isFullDayType(attendance.type) ? 'Học' : `${session.lessonType || 'HỌC'} · ${formatDuration(session.spendTime)}`}</span>
+                                  {!session.absent && session.teacherName && <span className="block truncate font-bold">{session.teacherName}</span>}
+                                  {session.notes && <span className="block truncate text-[8px] font-medium text-violet-600 dark:text-violet-300 sm:text-[9px]" title={session.notes}>* {session.notes}</span>}
+                                  {session.refund > 0 && <span className="block truncate text-red-600">Hoàn {formatMoney(session.refund)}</span>}
+                                </button>)}
+                                {missingTeacherIds.map((teacherId) => <button key={`missing-${teacherId}`} type="button" disabled={dayMutation.isPending} onClick={async (event) => {
+                                  if (!await confirmEditingFromCell(attendance, child?.name || `Trẻ #${childId}`, event.currentTarget)) return
+                                  dayMutation.mutate({ attendanceId: attendance._id, childId, date, attendanceType: attendance.type, attended: false, defaultTeacherId: teacherId, teacherIds: [teacherId] })
+                                }} className="min-w-0 rounded border border-dashed border-blue-400 bg-blue-50/80 px-1 py-1 text-left text-[9px] font-bold text-blue-700 transition hover:bg-blue-100 dark:border-blue-500/60 dark:bg-blue-500/10 dark:text-blue-300 sm:text-[10px]" title={`Điểm danh thêm ${teacherNameById.get(String(teacherId)) || 'giáo viên'}`}>
+                                  + {teacherNameById.get(String(teacherId)) || 'Thêm cô'}
+                                </button>)}
+                                {items.length === 0 && missingTeacherIds.length === 0 && <button type="button" disabled={dayMutation.isPending} onClick={async (event) => {
+                                  if (!await confirmEditingFromCell(attendance, child?.name || `Trẻ #${childId}`, event.currentTarget)) return
+                                  const scheduledTeacherId = selectedAttendanceTeachers[attendance._id] || filteredTeacherId || teacherIds[0] || fallbackTeacherId
+                                  if (needsTeacher(attendance.type) && !scheduledTeacherId) return toast.error('Trẻ chưa có giáo viên trong lịch ngày này')
+                                  dayMutation.mutate({ attendanceId: attendance._id, childId, date, attendanceType: attendance.type, attended: false, defaultTeacherId: scheduledTeacherId, teacherIds })
+                                }} className="min-h-8 rounded text-center text-muted/40 transition hover:bg-primary/5 hover:text-primary hover:ring-1 hover:ring-primary/20">—</button>}
+                              </div>
+                            </div>
                           })}
                         </div>
                         <label className="grid gap-1.5 rounded-lg border border-violet-200 bg-violet-50/60 p-2 text-xs font-semibold text-violet-700 dark:border-violet-500/30 dark:bg-violet-500/10 dark:text-violet-300">
@@ -1111,6 +1176,7 @@ export default function StudentHistoryPage() {
               {(teachersQuery.data || []).filter((teacher) => teacher.active).map((teacher) => <option key={teacher._id} value={teacher._id}>{teacher.name}</option>)}
             </select>
             <span className={`rounded-lg border-l-4 px-3 py-2 font-normal ${editTeacherName ? 'border-blue-500 bg-blue-50 text-blue-800 dark:bg-blue-500/10 dark:text-blue-200' : 'border-slate-300 bg-surface-muted text-muted'}`}>Đang chọn: <strong>{editTeacherName || 'Chưa chọn giáo viên'}</strong></span>
+            {editTeacherName && <span className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 font-normal text-text-main dark:border-red-500/30 dark:bg-red-500/10">Lương GV 1h ({editTeacherName}): <strong className="text-red-600 dark:text-red-400">{formatMoney(editTeacherSalary)}</strong></span>}
           </label>}
           <label className="flex items-center gap-2 rounded-lg border border-red-300 bg-red-50 p-2 text-xs font-semibold text-red-700 sm:gap-3 sm:rounded-xl sm:p-3 sm:text-sm dark:border-red-500/50 dark:bg-red-500/15 dark:text-red-300">
             <input type="checkbox" checked={editAbsent} onChange={(event) => setEditAbsent(event.target.checked)} className="h-4 w-4 accent-primary" />
