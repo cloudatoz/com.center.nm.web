@@ -1,6 +1,7 @@
 import { Loader2 } from 'lucide-react'
-import { lazy, Suspense, useEffect, useState } from 'react'
+import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import { createBrowserRouter, Navigate, RouterProvider, useLocation } from 'react-router-dom'
+import { toast } from 'sonner'
 import { AdminShell } from '@/layouts/admin-shell'
 import { useAuthStore } from '@/stores/auth-store'
 import { useThemeStore } from '@/stores/theme-store'
@@ -77,9 +78,10 @@ export default function App() {
   const hydrated = useAuthStore((state) => state.hydrated)
   const hydrateAuth = useAuthStore((state) => state.hydrate)
   const hydrateTheme = useThemeStore((state) => state.hydrate)
-  const session = useAuthStore((state) => state.session)
   const setSession = useAuthStore((state) => state.setSession)
+  const clearSession = useAuthStore((state) => state.clearSession)
   const [teacherLoginPending, setTeacherLoginPending] = useState(false)
+  const teacherLoginStarted = useRef(false)
 
   useEffect(() => {
     hydrateTheme()
@@ -87,19 +89,26 @@ export default function App() {
   }, [hydrateAuth, hydrateTheme, hydrated])
 
   useEffect(() => {
-    if (!hydrated || session || teacherLoginPending) return
+    if (!hydrated || teacherLoginStarted.current) return
     const code = new URLSearchParams(window.location.search).get('code')?.trim().toLowerCase()
-    if (!code || !/^[a-z0-9]{8}$/.test(code)) return
+    if (!code) return
+    teacherLoginStarted.current = true
+    if (!/^[a-z0-9]{8}$/.test(code)) {
+      toast.error('Mã đăng nhập giáo viên không hợp lệ')
+      return
+    }
+    clearSession()
     setTeacherLoginPending(true)
-    const url = new URL(window.location.href)
-    url.searchParams.delete('code')
-    window.history.replaceState({}, '', `${url.pathname}${url.search}${url.hash}`)
     loginTeacherByCode(code)
       .then((teacherSession) => {
         setSession(teacherSession)
+        const url = new URL(window.location.href)
+        url.searchParams.delete('code')
+        window.history.replaceState({}, '', `${url.pathname}${url.search}${url.hash}`)
       })
+      .catch((error) => toast.error(error instanceof Error ? error.message : 'Không thể đăng nhập bằng mã giáo viên'))
       .finally(() => setTeacherLoginPending(false))
-  }, [hydrated, session, setSession, teacherLoginPending])
+  }, [clearSession, hydrated, setSession])
 
   if (!hydrated || teacherLoginPending) return <LoadingScreen />
   return (
