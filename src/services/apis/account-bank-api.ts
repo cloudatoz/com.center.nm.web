@@ -3,6 +3,7 @@ import { ApiContractError, apiClient, unwrapPayload } from './api-client'
 
 const accountBankSchema = z.object({
   _id: z.coerce.string(),
+  description: z.string().default(''),
   bankName: z.string(),
   accountNumber: z.string(),
   accountHolderName: z.string(),

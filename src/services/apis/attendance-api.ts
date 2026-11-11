@@ -92,13 +92,13 @@ export async function createAttendance(childId: string, date: string, spendTime:
   return parseMonthlyAttendance(response.data)
 }
 
-export async function deleteAttendanceDay(childId: string, date: string, type: AttendanceType) {
-  const response = await apiClient.delete(`/v1/attendance/by-date/${childId}`, { data: { date, type } })
+export async function deleteAttendanceDay(childId: string, date: string, type: AttendanceType, teacherId?: string) {
+  const response = await apiClient.delete(`/v1/attendance/by-date/${childId}`, { data: { date, type, ...(teacherId ? { teacherId: Number(teacherId) } : {}) } })
   return parseMonthlyAttendance(response.data)
 }
 
 export async function updateAttendanceDay(id: string, date: string, spendTime: number, teacherId?: string, absent = false, refund = 0, notes = '', lessonType = 'HỌC') {
-  const response = await apiClient.put(`/v1/attendance/update/${id}`, { date, spendTime, absent, refund, notes, lessonType, ...(teacherId && !absent ? { teacherId: Number(teacherId) } : {}) })
+  const response = await apiClient.put(`/v1/attendance/update/${id}`, { date, spendTime, absent, refund, notes, lessonType, ...(teacherId ? { teacherId: Number(teacherId) } : {}) })
   return parseMonthlyAttendance(response.data)
 }
 
