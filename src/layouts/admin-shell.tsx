@@ -1,5 +1,5 @@
 import { useQueryClient } from '@tanstack/react-query'
-import { ChevronDown, ChevronRight, LogOut, Menu, X } from 'lucide-react'
+import { ChevronDown, ChevronRight, LogOut, Menu, PanelLeftClose, PanelLeftOpen, X } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { toast } from 'sonner'
@@ -17,6 +17,7 @@ export function AdminShell() {
   const session = useAuthStore((state) => state.session)
   const clearSession = useAuthStore((state) => state.clearSession)
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
+  const [desktopMenuCollapsed, setDesktopMenuCollapsed] = useState(() => localStorage.getItem('admin-sidebar-collapsed') === 'true')
   const [userMenuOpen, setUserMenuOpen] = useState(false)
   const userMenuRef = useRef<HTMLDivElement>(null)
 
@@ -66,6 +67,10 @@ export function AdminShell() {
     }
   }, [])
 
+  useEffect(() => {
+    localStorage.setItem('admin-sidebar-collapsed', String(desktopMenuCollapsed))
+  }, [desktopMenuCollapsed])
+
   // biome-ignore lint/correctness/useExhaustiveDependencies: close menus on navigation
   useEffect(() => {
     setUserMenuOpen(false)
@@ -103,11 +108,12 @@ export function AdminShell() {
 
       <aside
         className={cx(
-          'fixed inset-y-0 left-0 z-50 flex w-[270px] flex-col border-r border-border bg-surface text-text-main transition-transform duration-300 lg:sticky lg:top-0 lg:h-screen lg:translate-x-0',
+          'fixed inset-y-0 left-0 z-50 flex w-[270px] flex-col border-r border-border bg-surface text-text-main transition-all duration-300 lg:sticky lg:top-0 lg:h-screen lg:translate-x-0',
+          desktopMenuCollapsed ? 'lg:w-20' : 'lg:w-[270px]',
           mobileMenuOpen ? 'translate-x-0 shadow-2xl' : '-translate-x-full',
         )}
       >
-        <div className="flex h-[64px] items-center justify-between border-b border-border px-5">
+        <div className={cx('flex h-[64px] items-center justify-between border-b border-border px-5', desktopMenuCollapsed && 'lg:justify-center lg:px-2')}>
           <BrandLogo />
           <Button
             variant="ghost"
@@ -120,13 +126,13 @@ export function AdminShell() {
           </Button>
         </div>
 
-        <div className="px-5 pb-2 pt-4">
+        <div className={cx('px-5 pb-2 pt-4', desktopMenuCollapsed && 'lg:hidden')}>
           <span className="text-[10px] font-bold uppercase tracking-wider text-muted">
             Administration Portal
           </span>
         </div>
 
-        <nav className="flex-1 space-y-1.5 overflow-y-auto px-3 pb-4" aria-label="Admin navigation">
+        <nav className={cx('flex-1 space-y-1.5 overflow-y-auto px-3 pb-4', desktopMenuCollapsed && 'lg:px-2 lg:pt-4')} aria-label="Admin navigation">
           {visibleNavItems.map((item) => {
             if (isNavGroup(item)) {
               const isGroupActive = item.children.some((child) =>
@@ -138,9 +144,16 @@ export function AdminShell() {
                 <div key={item.id} className="space-y-1">
                   <button
                     type="button"
-                    onClick={() => toggleGroup(item.id)}
+                    title={desktopMenuCollapsed ? item.label : undefined}
+                    onClick={() => {
+                      if (desktopMenuCollapsed) {
+                        setDesktopMenuCollapsed(false)
+                        setOpenGroups((prev) => ({ ...prev, [item.id]: true }))
+                      } else toggleGroup(item.id)
+                    }}
                     className={cx(
                       'group flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-all duration-150 border-0 bg-transparent cursor-pointer text-left',
+                      desktopMenuCollapsed && 'lg:justify-center lg:px-2',
                       isGroupActive
                         ? 'text-primary font-semibold'
                         : 'text-slate-600 hover:bg-surface-muted hover:text-slate-900 dark:text-slate-400 dark:hover:bg-white/5 dark:hover:text-white',
@@ -153,18 +166,19 @@ export function AdminShell() {
                         isGroupActive ? 'text-primary' : 'text-slate-500 dark:text-slate-400',
                       )}
                     />
-                    <span className="min-w-0 flex-1 truncate">{item.label}</span>
+                    <span className={cx('min-w-0 flex-1 truncate', desktopMenuCollapsed && 'lg:hidden')}>{item.label}</span>
                     <ChevronDown
                       size={14}
                       className={cx(
                         'shrink-0 text-muted transition-transform duration-200',
+                        desktopMenuCollapsed && 'lg:hidden',
                         isOpen && 'rotate-180 text-text-main',
                       )}
                     />
                   </button>
 
                   {isOpen && (
-                    <div className="ml-4 space-y-1 border-l border-border/80 pl-3">
+                    <div className={cx('ml-4 space-y-1 border-l border-border/80 pl-3', desktopMenuCollapsed && 'lg:hidden')}>
                       {item.children.map((child) => (
                         <NavLink
                           key={child.id}
@@ -197,10 +211,12 @@ export function AdminShell() {
               <NavLink
                 key={item.id}
                 to={item.to}
+                title={desktopMenuCollapsed ? item.label : undefined}
                 onClick={() => setMobileMenuOpen(false)}
                 className={({ isActive }) =>
                   cx(
                     'group flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium no-underline transition-all duration-150',
+                    desktopMenuCollapsed && 'lg:justify-center lg:px-2',
                     isActive
                       ? 'bg-primary/10 text-primary font-semibold shadow-xs'
                       : 'text-slate-600 hover:bg-surface-muted hover:text-slate-900 dark:text-slate-400 dark:hover:bg-white/5 dark:hover:text-white',
@@ -208,10 +224,10 @@ export function AdminShell() {
                 }
               >
                 <item.icon size={18} className="shrink-0" />
-                <span className="min-w-0 flex-1 truncate">{item.label}</span>
+                <span className={cx('min-w-0 flex-1 truncate', desktopMenuCollapsed && 'lg:hidden')}>{item.label}</span>
                 <ChevronRight
                   size={14}
-                  className="opacity-0 transition-opacity duration-150 group-hover:opacity-60"
+                  className={cx('opacity-0 transition-opacity duration-150 group-hover:opacity-60', desktopMenuCollapsed && 'lg:hidden')}
                 />
               </NavLink>
             )
@@ -230,6 +246,16 @@ export function AdminShell() {
               onClick={() => setMobileMenuOpen(true)}
             >
               <Menu size={20} />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="hidden shrink-0 lg:inline-flex"
+              aria-label={desktopMenuCollapsed ? 'Mở rộng menu' : 'Thu gọn menu'}
+              title={desktopMenuCollapsed ? 'Mở rộng menu' : 'Thu gọn menu'}
+              onClick={() => setDesktopMenuCollapsed((collapsed) => !collapsed)}
+            >
+              {desktopMenuCollapsed ? <PanelLeftOpen size={20} /> : <PanelLeftClose size={20} />}
             </Button>
             <div className="min-w-0">
               <span className="block text-[10px] font-bold uppercase tracking-wider text-muted sm:hidden">
