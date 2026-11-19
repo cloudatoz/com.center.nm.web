@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { CheckCircle2, ChevronDown, Copy, FileImage, Filter, GraduationCap, Loader2, TrendingDown, TrendingUp, Users } from 'lucide-react'
 import { useRef, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useLocation } from 'react-router-dom'
 import { Bar, CartesianGrid, ComposedChart, Legend, Line, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { toCanvas } from 'html-to-image'
 import { toast } from 'sonner'
@@ -86,6 +86,8 @@ const abbreviateName = (name: string) => {
 }
 
 export default function DashboardPage() {
+  const location = useLocation()
+  const isStatisticsPage = location.pathname === '/statistics'
   const queryClient = useQueryClient()
   const now = new Date()
   const [year, setYear] = useState(now.getFullYear())
@@ -229,7 +231,7 @@ export default function DashboardPage() {
 
   return (
     <div className="grid gap-6">
-      <PageHeader eyebrow="Tổng quan" title="Bảng Số Liệu" description="Theo dõi thu, chi, nhân sự và kết quả hoạt động theo từng tháng." />
+      <PageHeader eyebrow="Tổng quan" title={isStatisticsPage ? 'Bảng Thống Kê' : 'Bảng Tổng Hợp'} description={isStatisticsPage ? 'Theo dõi thu, chi, nhân sự và kết quả hoạt động theo từng tháng.' : 'Tổng hợp khoản thu, tài khoản nhận tiền và lương giáo viên theo từng trẻ.'} />
       <Card className="flex flex-wrap items-end gap-3 p-4 sm:px-6">
         <label className="grid gap-1.5 text-xs font-semibold text-muted">Tháng<select value={month} onChange={(event) => setMonth(Number(event.target.value))} className="h-10 rounded-xl border border-border bg-surface px-3 text-sm font-medium text-text-main outline-none focus:border-primary">{MONTHS.map((value) => <option key={value} value={value}>Tháng {value}</option>)}</select></label>
         <label className="grid gap-1.5 text-xs font-semibold text-muted">Năm<select value={year} onChange={(event) => setYear(Number(event.target.value))} className="h-10 rounded-xl border border-border bg-surface px-3 text-sm font-medium text-text-main outline-none focus:border-primary">{YEARS.map((value) => <option key={value} value={value}>Năm {value}</option>)}</select></label>
@@ -237,14 +239,14 @@ export default function DashboardPage() {
       {overviewQuery.isLoading && <Card className="flex min-h-64 items-center justify-center gap-2 text-sm text-muted"><Loader2 size={20} className="spin text-primary" />Đang tổng hợp số liệu...</Card>}
       {overviewQuery.isError && <Card className="p-5 text-sm text-red-700">{overviewQuery.error instanceof Error ? overviewQuery.error.message : 'Không thể tải bảng số liệu'}</Card>}
       {overviewQuery.data && selected && <>
-        <div className="order-2 grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
+        {isStatisticsPage && <><div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
           <Card className="p-4"><div className="flex items-center gap-2"><span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-emerald-500/10 text-emerald-600"><TrendingUp size={16} /></span><span className="text-xs font-semibold text-muted">Tổng thu Tháng {month}</span></div><strong className="mt-3 block text-lg text-emerald-600">{formatMoney(selected.revenue)}</strong></Card>
           <Card className="p-4"><div className="flex items-center gap-2"><span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-red-500/10 text-red-600"><TrendingDown size={16} /></span><span className="text-xs font-semibold text-muted">Tổng chi Tháng {month}</span></div><strong className="mt-3 block text-lg text-red-600">{formatMoney(selected.expense)}</strong></Card>
           <Card className="p-4"><div className="flex items-center gap-2"><span className={`grid h-8 w-8 shrink-0 place-items-center rounded-lg ${selected.profit >= 0 ? 'bg-emerald-500/10 text-emerald-600' : 'bg-red-500/10 text-red-600'}`}>{selected.profit >= 0 ? <TrendingUp size={16} /> : <TrendingDown size={16} />}</span><span className="text-xs font-semibold text-muted">Chênh lệch Thu - Chi</span></div><strong className={`mt-3 block text-lg ${selected.profit >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>{formatMoney(selected.profit)}</strong></Card>
           <Card className="p-4"><div className="flex items-center gap-2"><span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-blue-500/10 text-blue-600"><GraduationCap size={16} /></span><span className="text-xs font-semibold text-muted">Tổng số học sinh</span></div><strong className="mt-3 block text-lg text-text-main">{overviewQuery.data.childrenCount}</strong></Card>
           <Card className="p-4"><div className="flex items-center gap-2"><span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-purple-500/10 text-purple-600"><Users size={16} /></span><span className="text-xs font-semibold text-muted">Tổng số giáo viên</span></div><strong className="mt-3 block text-lg text-text-main">{overviewQuery.data.teachersCount}</strong></Card>
         </div>
-        <div className="order-3 grid gap-4 lg:grid-cols-2 xl:grid-cols-3">
+        <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-3">
           <Card className="overflow-hidden">
             <CardHeader title={`Chi tiết tổng thu Tháng ${month}`} description="Doanh thu được phân theo từng loại học." />
             <Table>
@@ -288,8 +290,8 @@ export default function DashboardPage() {
               </TableBody>
             </Table>
           </Card>
-        </div>
-        <Card className="order-1 overflow-hidden">
+        </div></>}
+        {!isStatisticsPage && <><Card className="overflow-hidden">
           <CardHeader title={`Bảng tổng hợp Tháng ${month}/${year}`} description="Tổng hợp khoản thu, tài khoản nhận tiền và lương giáo viên theo từng trẻ." action={<div className="flex flex-wrap gap-2"><label className="grid gap-1 text-xs font-semibold text-muted">Giáo viên<select value={teacherFilter} onChange={(event) => setTeacherFilter(event.target.value)} className="h-9 max-w-52 rounded-xl border border-border bg-surface px-3 text-sm font-medium text-text-main outline-none focus:border-primary"><option value="ALL">Tất cả giáo viên</option>{teacherOptions.map((teacher) => <option key={teacher.key} value={teacher.key}>{teacher.name}</option>)}</select></label><label className="grid gap-1 text-xs font-semibold text-muted">Loại học<select value={typeFilter} onChange={(event) => setTypeFilter(event.target.value)} className="h-9 rounded-xl border border-border bg-surface px-3 text-sm font-medium text-text-main outline-none focus:border-primary"><option value="ALL">Tất cả loại</option><option value="CA_NGAY">Cả ngày</option><option value="THEO_BUOI">Cá nhân</option><option value="TAI_NHA">Tại nhà</option><option value="SHADOW">Shadow</option></select></label><label className="grid gap-1 text-xs font-semibold text-muted">Sắp xếp<select value={detailSort} onChange={(event) => setDetailSort(event.target.value as 'NAME' | 'TYPE')} className="h-9 rounded-xl border border-border bg-surface px-3 text-sm font-medium text-text-main outline-none focus:border-primary"><option value="NAME">Theo tên trẻ</option><option value="TYPE">Theo loại học</option></select></label></div>} />
           <div className="flex flex-wrap items-center gap-x-6 gap-y-2 border-b border-orange-200 bg-orange-50 px-5 py-2 text-xs text-text-main dark:border-orange-500/20 dark:bg-orange-500/10"><div className="flex flex-wrap items-center gap-1.5"><strong>PH:</strong><span className="rounded-full border border-red-200 bg-red-50 px-2 py-0.5 font-bold text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-300">C</span><span>= Chưa thu</span><span className="rounded-full border border-blue-200 bg-blue-50 px-2 py-0.5 font-bold text-blue-700 dark:border-blue-500/30 dark:bg-blue-500/10 dark:text-blue-300">G</span><span>= Đã gửi phiếu PH</span><span className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 font-bold text-emerald-700 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-300">GR</span><span>= Đã thu</span></div><div className="flex flex-wrap items-center gap-1.5"><strong>GV:</strong><span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 font-bold text-amber-700 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-300">C</span><span>= Chưa gửi</span><span className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 font-bold text-emerald-700 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-300">G</span><span>= Đã chuyển lương</span></div></div>
           <Table containerClassName="max-h-[100vh] overflow-auto" className="min-w-[1040px] text-xs [&_td]:whitespace-nowrap [&_th]:whitespace-nowrap [&_td]:border-r [&_td]:border-border/70 [&_td:last-child]:border-r-0 [&_th]:border-r [&_th]:border-white/30 [&_th:last-child]:border-r-0">
@@ -381,9 +383,9 @@ export default function DashboardPage() {
 
             <div className="flex justify-end border-t border-border pt-4"><Button type="button" disabled={markAllTeacherSalarySentMutation.isPending || selectedTeacherSummary.lessons.every((lesson) => lesson.isTransferred)} onClick={() => markAllTeacherSalarySentMutation.mutate()}>{markAllTeacherSalarySentMutation.isPending ? <Loader2 size={16} className="spin" /> : <CheckCircle2 size={16} />}{selectedTeacherSummary.lessons.every((lesson) => lesson.isTransferred) ? 'Tất cả đã gửi' : 'Đã gửi tất cả'}</Button></div>
           </div> : <div className="flex min-h-40 items-center justify-center text-sm text-muted">Không tìm thấy dữ liệu lương của giáo viên.</div>}
-        </Modal>
+        </Modal></>}
 
-        <Card className="order-4 min-w-0 overflow-hidden">
+        {isStatisticsPage && <Card className="min-w-0 overflow-hidden">
             <CardHeader title={`Biểu đồ Thu - Chi năm ${year}`} description="So sánh tổng thu, tổng chi và chênh lệch theo từng tháng." />
             <div className="h-80 min-w-0 p-4 pt-1 sm:p-6 sm:pt-2">
               <ResponsiveContainer width="100%" height="100%">
@@ -399,7 +401,7 @@ export default function DashboardPage() {
                 </ComposedChart>
               </ResponsiveContainer>
             </div>
-        </Card>
+        </Card>}
       </>}
     </div>
   )

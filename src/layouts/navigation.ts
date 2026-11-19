@@ -1,5 +1,5 @@
 import type { LucideIcon } from 'lucide-react'
-import { BookOpenText, GraduationCap, History, LayoutDashboard, Presentation, ReceiptText, UserRoundCog, Users, WalletCards } from 'lucide-react'
+import { BarChart3, BookOpenText, GraduationCap, History, LayoutDashboard, Presentation, ReceiptText, UserRoundCog, Users, WalletCards } from 'lucide-react'
 
 export interface NavLeafItem {
   id: string
@@ -25,9 +25,15 @@ export function isNavGroup(item: NavItem): item is NavGroupItem {
 export const ADMIN_NAV_ITEMS: NavItem[] = [
   {
     id: 'dashboard',
-    label: 'Bảng Số Liệu',
+    label: 'Bảng Tổng Hợp',
     to: '/dashboard',
     icon: LayoutDashboard,
+  },
+  {
+    id: 'statistics',
+    label: 'Bảng Thống Kê',
+    to: '/statistics',
+    icon: BarChart3,
   },
   {
     id: 'students',
